@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(done)",
+      "Bash(node -e \"require\\(''''./server/routes/subscriptions''''\\); console.log\\(''''ok''''\\)\")",
+      "Bash(grep -n \"import.*createPortal\\\\|from ''react-dom''\" \"o:/wamp/www/Biometric WebSocket/monorepo/client/src/pages/Subscription.jsx\")",
+      "Bash(xargs grep:*)",
+      "Bash(node -e \":*)",
+      "Bash(npm install:*)",
+      "Bash(find 'o:/wamp/www/Biometric WebSocket/monorepo/server' -name emails -o -name email* -o -name *.hbs -o -name *.handlebars -o -name *.html)",
+      "Bash(find 'o:/wamp/www/Biometric WebSocket/monorepo' -type f \\\\\\(-name *logo* -o -name *icon* -o -name *brand* -o -name *.png -o -name *.jpg -o -name *.jpeg -o -name *.svg \\\\\\))",
+      "Bash(find 'o:/wamp/www/Biometric WebSocket/monorepo' -type f -name *mailer* -o -name *mail* -o -name *email*)",
+      "Bash(find 'o:/wamp/www/Biometric WebSocket/monorepo' -type f -name *config*)",
+      "Bash(find 'o:/wamp/www/Biometric WebSocket/monorepo' -type f \\\\\\(-name *.ejs -o -name *.pug -o -name *.nunjucks -o -name *.liquid \\\\\\))",
+      "Bash(/dev/null --include=*.js)",
+      "Bash(find '/o/wamp/www/Biometric WebSocket/monorepo/client/src' -name *About* -o -name *Bridge*)",
+      "Bash(find '/o/wamp/www/Biometric WebSocket/monorepo/server' -name *upload* -o -name *cloud*)"
+    ]
+  }
+}
