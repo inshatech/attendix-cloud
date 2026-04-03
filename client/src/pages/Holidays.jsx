@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   CalendarDays, Plus, Edit3, Trash2, RefreshCw,
@@ -311,6 +311,20 @@ export default function Holidays() {
   }
 
   const now = new Date(); const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+  const currentMonthIdx  = now.getMonth()
+  const isCurrentYear    = year === now.getFullYear()
+  const currentMonthRef  = useRef(null)
+
+  // Scroll current month into view when data loads or year changes
+  useEffect(() => {
+    if (!loading && isCurrentYear && currentMonthRef.current) {
+      // Small delay so the DOM has settled before scrolling
+      const t = setTimeout(() => {
+        currentMonthRef.current?.scrollIntoView({ behavior:'smooth', block:'start' })
+      }, 120)
+      return () => clearTimeout(t)
+    }
+  }, [loading, isCurrentYear])
   const googleCount = holidays.filter(h => h.source === 'google').length
   const manualCount = holidays.filter(h => h.source !== 'google').length
 
@@ -328,7 +342,7 @@ export default function Holidays() {
   )
 
   return (
-    <UserPage>
+    <UserPage className="holidays-page-wrap">
       {/* Header */}
       <UserPageHeader
         title="Holidays"
@@ -398,21 +412,24 @@ export default function Holidays() {
 
       {/* Month overview mini-grid */}
       {holidays.length > 0 && (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(12, 1fr)', gap:5 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(52px, 1fr))', gap:5 }}>
           {MONTHS_SHORT.map((m, i) => {
-            const cnt      = byMonth[i]?.length || 0
-            const hasToday = byMonth[i]?.some(h => h.date === today)
+            const cnt        = byMonth[i]?.length || 0
+            const hasToday   = byMonth[i]?.some(h => h.date === today)
+            const isCurMonth = isCurrentYear && i === currentMonthIdx
             return (
               <div key={i} style={{
                 padding:'8px 4px', borderRadius:9, textAlign:'center',
-                background: cnt > 0 ? 'var(--bg-surface)' : 'var(--bg-surface2)',
-                border:`1px solid ${cnt > 0 ? 'var(--accent-border)' : 'var(--border)'}`,
-                opacity: cnt > 0 ? 1 : 0.4,
+                background: isCurMonth ? 'rgba(244,114,182,.08)' : cnt > 0 ? 'var(--bg-surface)' : 'var(--bg-surface2)',
+                border:`1px solid ${isCurMonth ? 'rgba(244,114,182,.4)' : cnt > 0 ? 'var(--accent-border)' : 'var(--border)'}`,
+                opacity: cnt > 0 || isCurMonth ? 1 : 0.4,
+                boxShadow: isCurMonth ? '0 0 0 1px rgba(244,114,182,.15)' : 'none',
                 transition:'all .15s',
               }}>
-                <p style={{ fontSize:'0.6rem', fontFamily:'monospace', fontWeight:700, color: cnt > 0 ? 'var(--accent)' : 'var(--text-dim)', letterSpacing:'0.04em' }}>{m}</p>
-                <p style={{ fontSize:'1.125rem', fontWeight:800, color:'var(--text-primary)', lineHeight:1, marginTop:3 }}>{cnt}</p>
+                <p style={{ fontSize:'0.6rem', fontFamily:'monospace', fontWeight:700, color: isCurMonth ? '#f472b6' : cnt > 0 ? 'var(--accent)' : 'var(--text-dim)', letterSpacing:'0.04em' }}>{m}</p>
+                <p style={{ fontSize:'1.125rem', fontWeight:800, color: isCurMonth ? '#f472b6' : 'var(--text-primary)', lineHeight:1, marginTop:3 }}>{cnt}</p>
                 {hasToday && <div style={{ width:5, height:5, borderRadius:'50%', background:'#34d399', margin:'3px auto 0' }}/>}
+                {isCurMonth && !hasToday && <div style={{ width:5, height:5, borderRadius:'50%', background:'rgba(244,114,182,.5)', margin:'3px auto 0' }}/>}
               </div>
             )
           })}
@@ -451,16 +468,26 @@ export default function Holidays() {
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
           {Object.entries(byMonth)
             .sort(([a],[b]) => Number(a) - Number(b))
-            .map(([monthIdx, monthHols]) => (
-              <Card key={monthIdx}>
-                <div style={{
+            .map(([monthIdx, monthHols]) => {
+              const isCurMonth = isCurrentYear && Number(monthIdx) === currentMonthIdx
+              return (
+              <Card key={monthIdx} style={isCurMonth ? { border:'1px solid rgba(244,114,182,.35)', boxShadow:'0 0 0 2px rgba(244,114,182,.08)' } : {}}>
+                <div ref={isCurMonth ? currentMonthRef : null} style={{
                   padding:'10px 18px', borderBottom:'1px solid var(--border-soft)',
-                  background:'var(--bg-surface2)',
+                  background: isCurMonth ? 'rgba(244,114,182,.07)' : 'var(--bg-surface2)',
                   display:'flex', alignItems:'center', justifyContent:'space-between',
+                  scrollMarginTop:'72px',
                 }}>
-                  <p style={{ fontSize:'0.8rem', fontFamily:'monospace', fontWeight:700, color:'var(--accent)', textTransform:'uppercase', letterSpacing:'0.07em' }}>
-                    {MONTHS_FULL[monthIdx]} {year}
-                  </p>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <p style={{ fontSize:'0.8rem', fontFamily:'monospace', fontWeight:700, color: isCurMonth ? '#f472b6' : 'var(--accent)', textTransform:'uppercase', letterSpacing:'0.07em' }}>
+                      {MONTHS_FULL[monthIdx]} {year}
+                    </p>
+                    {isCurMonth && (
+                      <span style={{ fontSize:'0.6rem', fontFamily:'monospace', fontWeight:700, padding:'2px 7px', borderRadius:99, background:'rgba(244,114,182,.12)', color:'#f472b6', border:'1px solid rgba(244,114,182,.3)' }}>
+                        THIS MONTH
+                      </span>
+                    )}
+                  </div>
                   <span style={{ fontSize:'0.7rem', fontFamily:'monospace', color:'var(--text-dim)' }}>
                     {monthHols.length} holiday{monthHols.length !== 1 ? 's' : ''}
                   </span>
@@ -546,7 +573,7 @@ export default function Holidays() {
                     )
                   })}
               </Card>
-            ))}
+            )})}
         </div>
       )}
 
@@ -590,6 +617,12 @@ export default function Holidays() {
       <style>{`
         @keyframes spin          { to { transform:rotate(360deg) } }
         @keyframes shimmer-pulse { 0%,100%{opacity:.4} 50%{opacity:.9} }
+        @media (max-width: 640px) {
+          .holidays-page-wrap { padding: 1rem 1rem !important; gap: 1rem !important; }
+        }
+        @media (max-width: 480px) {
+          .holidays-page-wrap { padding: 0.75rem 0.75rem !important; }
+        }
       `}</style>
     </UserPage>
   )

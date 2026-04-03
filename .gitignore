@@ -7,6 +7,7 @@ server/node_modules/
 .env
 .env.local
 .env.*.local
+AI_CONTEXT.md
 
 # Build output
 dist/
