@@ -13,6 +13,7 @@ AI_CONTEXT.md
 dist/
 client/dist/
 build/
+*.zip
 
 # Logs
 logs/

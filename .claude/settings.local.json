@@ -14,7 +14,8 @@
       "Bash(find 'o:/wamp/www/Biometric WebSocket/monorepo' -type f \\\\\\(-name *.ejs -o -name *.pug -o -name *.nunjucks -o -name *.liquid \\\\\\))",
       "Bash(/dev/null --include=*.js)",
       "Bash(find '/o/wamp/www/Biometric WebSocket/monorepo/client/src' -name *About* -o -name *Bridge*)",
-      "Bash(find '/o/wamp/www/Biometric WebSocket/monorepo/server' -name *upload* -o -name *cloud*)"
+      "Bash(find '/o/wamp/www/Biometric WebSocket/monorepo/server' -name *upload* -o -name *cloud*)",
+      "Bash(find /o/wamp/www/Biometric WebSocket/monorepo -maxdepth 2 -type d -not -path */.* -not -path */node_modules*)"
     ]
   }
 }

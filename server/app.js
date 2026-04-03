@@ -185,6 +185,9 @@ app.get('/tawk-config', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── APPLY GENERAL RATE LIMIT TO ALL /api ROUTES ───────────────────────────────
+app.use('/api', generalApiLimiter);
+
 // ── MOUNT ALL ROUTES ──────────────────────────────────────────────────────────
 app.use('/auth',          routeAuth);
 app.use('/admin/plugins', routePlugins);
@@ -201,9 +204,6 @@ app.use('/',              routeAttendance);
 
 // ── STATIC (React SPA build) ──────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../dist')));
-
-// ── APPLY GENERAL RATE LIMIT TO ALL /api ROUTES ───────────────────────────────
-app.use('/api', generalApiLimiter);
 
 // ── RUNTIME STATE ─────────────────────────────────────────────────────────────
 const bridgeMap       = new Map();
