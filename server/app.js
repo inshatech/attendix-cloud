@@ -199,10 +199,8 @@ app.use('/',              routeCoupons);
 app.use('/',              routeEmployees);
 app.use('/',              routeAttendance);
 
-// ── STATIC PAGES ──────────────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/',          (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
-app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin-plugins.html')));
+// ── STATIC (React SPA build) ──────────────────────────────────────────────────
+app.use(express.static(path.join(__dirname, '../dist')));
 
 // ── APPLY GENERAL RATE LIMIT TO ALL /api ROUTES ───────────────────────────────
 app.use('/api', generalApiLimiter);
@@ -882,8 +880,14 @@ app.get('/admin/chat/stream', requireAuth, requireRole('admin','support'), (req,
   req.on('close', () => clearInterval(hb));
 });
 
-// ── 404 / ERROR ───────────────────────────────────────────────────────────────
-app.use((req, res) => res.status(404).json({ error: `Not found: ${req.method} ${req.path}` }));
+// ── SPA FALLBACK / 404 ────────────────────────────────────────────────────────
+const API_PREFIXES = ['/api/','/auth/','/admin/','/user/','/organizations/','/subscriptions/','/tawk-config','/chat/','/tickets/','/webhooks/','/bridge-app/','/machine-users/','/health','/bridge'];
+app.use((req, res) => {
+  if (API_PREFIXES.some(p => req.path === p || req.path.startsWith(p))) {
+    return res.status(404).json({ error: `Not found: ${req.method} ${req.path}` });
+  }
+  res.sendFile(path.join(__dirname, '../dist', 'index.html'));
+});
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => { console.error('[server]', err.stack); res.status(500).json({ error: 'Internal server error' }); });
 
@@ -902,8 +906,7 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 // ── START ─────────────────────────────────────────────────────────────────────
 server.listen(PORT, () => {
   console.log(`[server] Listening on :${PORT}`);
-  console.log(`[server] Login page:   http://localhost:${PORT}/login.html`);
-  console.log(`[server] Plugins UI:   http://localhost:${PORT}/admin-plugins.html`);
+  console.log(`[server] App:          http://localhost:${PORT}`);
   console.log(`[server] Health:       http://localhost:${PORT}/health`);
   console.log(`[server] WS endpoint:  ws://HOST:${PORT}/bridge?secret=<WS_SECRET>`);
 });
