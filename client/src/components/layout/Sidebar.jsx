@@ -136,20 +136,18 @@ function Footer({ user, logout, roleLabel, accent }) {
         </div>
         <LogOut size={14} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
       </button>
-      {companyName && (
-        <>
-          <hr style={{ margin: '0.75rem 0', border: 'none', height: 1, background: 'var(--border)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Heart size={10} style={{ color: '#58a6ff', fill: '#58a6ff' }} />
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-              Powered by: {' '}
-              <Link to="https://www.inshatech.com" style={{ color: 'var(--text-primary)' }} target="_blank" rel="noopener noreferrer">
-                <strong style={{ color: 'var(--text-secondary)' }}>{companyName || 'Insha Technologies'}</strong>
-              </Link>
-            </p>
-          </div>
-        </>
-      )}
+      <>
+        <hr style={{ margin: '0.75rem 0', border: 'none', height: 1, background: 'var(--border)' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Heart size={10} style={{ color: '#58a6ff', fill: '#58a6ff' }} />
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+            Powered by: {' '}
+            <Link to="https://www.inshatech.com" style={{ color: 'var(--text-primary)' }} target="_blank" rel="noopener noreferrer">
+              <strong style={{ color: 'var(--text-secondary)' }}>{companyName || 'Insha Technologies'}</strong>
+            </Link>
+          </p>
+        </div>
+      </>
     </div>
   )
 }
