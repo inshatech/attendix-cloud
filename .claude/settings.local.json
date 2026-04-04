@@ -15,7 +15,12 @@
       "Bash(/dev/null --include=*.js)",
       "Bash(find '/o/wamp/www/Biometric WebSocket/monorepo/client/src' -name *About* -o -name *Bridge*)",
       "Bash(find '/o/wamp/www/Biometric WebSocket/monorepo/server' -name *upload* -o -name *cloud*)",
-      "Bash(find /o/wamp/www/Biometric WebSocket/monorepo -maxdepth 2 -type d -not -path */.* -not -path */node_modules*)"
+      "Bash(find /o/wamp/www/Biometric WebSocket/monorepo -maxdepth 2 -type d -not -path */.* -not -path */node_modules*)",
+      "Bash(node -e \"try { require\\('./server/routes/employees'\\); console.log\\('OK - employees loaded fine'\\); } catch\\(e\\) { console.error\\('LOAD ERROR:', e.message\\); }\")",
+      "Bash(node -e ':*)",
+      "Bash(node -e \"require\\('./server/models/Department'\\); console.log\\('Department model OK'\\)\")",
+      "Bash(node -e \"try { var r = require\\('./routes/employees'\\); console.log\\('loaded ok, type:', typeof r, 'init:', typeof r.init\\); } catch\\(e\\) { console.error\\('LOAD ERROR:', e.message\\); }\")",
+      "Bash(node -e \"var d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{var p=JSON.parse\\(d\\);console.log\\('scripts:',JSON.stringify\\(p.scripts,null,2\\)\\);console.log\\('main:',p.main\\);}\\)\")"
     ]
   }
 }

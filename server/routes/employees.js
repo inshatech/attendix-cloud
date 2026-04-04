@@ -4,8 +4,9 @@ const router  = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 
-const Employee = require('../models/Employee');
-const Shift    = require('../models/Shift');
+const Employee   = require('../models/Employee');
+const Shift      = require('../models/Shift');
+const Department = require('../models/Department');
 const { requireAuth, requireRole } = require('../auth/middleware');
 const { generalApiLimiter, adminApiLimiter, strictAdminLimiter } = require('../auth/rateLimits');
 const { uploadBase64, deleteImage, publicIdFromUrl } = require('../services/uploadService');
@@ -453,11 +454,19 @@ router.get('/organizations/:orgId/employees/meta/departments', requireAuth, gene
   try {
     const org = await getOwnedOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
     if (!org) return res.status(404).json({ error: 'Organization not found' });
-    const [depts, desigs] = await Promise.all([
-      Employee.distinct('department', { orgId: req.params.orgId, department: { $ne: null } }),
+
+    // Source departments from Department collection; fall back to distinct if none defined yet
+    const [deptDocs, desigs] = await Promise.all([
+      Department.find({ orgId: req.params.orgId, isActive: true }).sort({ name: 1 }).select('name').lean(),
       Employee.distinct('designation', { orgId: req.params.orgId, designation: { $ne: null } }),
     ]);
-    res.json({ status: 'success', data: { departments: depts.sort(), designations: desigs.sort() } });
+    // If no managed departments exist, fall back to distinct values from employees
+    let deptNames = deptDocs.map(d => d.name);
+    if (deptNames.length === 0) {
+      deptNames = await Employee.distinct('department', { orgId: req.params.orgId, department: { $ne: null } });
+      deptNames.sort();
+    }
+    res.json({ status: 'success', data: { departments: deptNames, designations: desigs.sort() } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -488,6 +497,78 @@ router.get('/organizations/:orgId/employees/meta/stats', requireAuth, generalApi
     }
 
     res.json({ status: 'success', data: { total, active, inactive, terminated, muTotal, muLinked, muUnlinked } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Bulk import employees from machine ────────────────────────────────────────
+// POST /organizations/:orgId/employees/bulk-from-machine
+// Body: { rows: [{ uid, deviceId, name, department }] }
+router.post('/organizations/:orgId/employees/bulk-from-machine', requireAuth, generalApiLimiter, async (req, res) => {
+  try {
+    const org = await getOwnedOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (!org.bridgeId) return res.status(400).json({ error: 'No bridge connected to this organization' });
+    if (!_MachineUser) return res.status(503).json({ error: 'Machine service unavailable' });
+
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.length === 0)
+      return res.status(400).json({ error: 'rows array is required' });
+
+    let codeOffset = await Employee.countDocuments({ orgId: req.params.orgId });
+    const results  = [];
+
+    for (const row of rows) {
+      const { uid, deviceId, name, department } = row;
+      if (!name?.trim()) {
+        results.push({ uid, deviceId, success: false, error: 'Name is required' });
+        continue;
+      }
+      try {
+        // Check already linked
+        const mu = await _MachineUser.findOne({ bridgeId: org.bridgeId, deviceId, uid: Number(uid) });
+        if (mu?.userId && String(mu.userId).startsWith('emp-')) {
+          results.push({ uid, deviceId, success: false, error: 'Already linked to an employee' });
+          continue;
+        }
+
+        const parts     = name.trim().split(/\s+/);
+        const firstName = parts[0];
+        const lastName  = parts.slice(1).join(' ') || null;
+        codeOffset++;
+        const employeeCode = `EMP${String(codeOffset).padStart(4, '0')}`;
+
+        const emp = await Employee.create({
+          employeeId: genEmployeeId(),
+          orgId:      req.params.orgId,
+          firstName,
+          lastName,
+          employeeCode,
+          department: department || null,
+          status:     'active',
+        });
+
+        // Link machine user
+        if (mu) {
+          await _MachineUser.updateOne(
+            { bridgeId: org.bridgeId, deviceId, uid: Number(uid) },
+            { $set: { userId: emp.employeeId, name: emp.displayName || name.trim() } }
+          );
+        }
+        await Employee.updateOne(
+          { employeeId: emp.employeeId },
+          { $push: { machineEnrollments: { bridgeId: org.bridgeId, deviceId, uid: Number(uid), enrolledAt: new Date() } } }
+        );
+
+        results.push({ uid, deviceId, success: true, employeeId: emp.employeeId, employeeCode: emp.employeeCode, name: emp.displayName || name.trim() });
+      } catch (e) {
+        if (e.code === 11000) results.push({ uid, deviceId, success: false, error: 'Employee code conflict' });
+        else results.push({ uid, deviceId, success: false, error: e.message });
+      }
+    }
+
+    const created = results.filter(r => r.success).length;
+    const failed  = results.filter(r => !r.success).length;
+    res.json({ status: 'success', created, failed, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

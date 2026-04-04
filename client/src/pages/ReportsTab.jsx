@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   CalendarDays, BarChart3, Receipt, FileText, Clock,
@@ -645,6 +645,7 @@ export default function Reports() {
   const [startDate, setStart]  = useState(monthStart())
   const [endDate,   setEnd]    = useState(todayStr())
   const [fDept,     setFDept]  = useState('')
+  const [depts,     setDepts]  = useState([])
   const [rangeData,   setRange]   = useState(null)
   const [payrollData, setPayroll] = useState(null)
   const [loading,   setLoad]   = useState(false)
@@ -653,10 +654,13 @@ export default function Reports() {
   const [scope,     setScope]  = useState('all')   // 'all' | 'selected'
   const [selected,  setSel]    = useState(new Set())
 
-  const depts = useMemo(() => {
-    const src = rangeData?.data || payrollData?.data || []
-    return [...new Set(src.map(r => r.department).filter(Boolean))]
-  }, [rangeData, payrollData])
+  useEffect(() => {
+    if (!orgId) return
+    setFDept('')
+    api.get(`/organizations/${orgId}/employees/meta/departments`)
+      .then(r => setDepts(r.data?.departments || []))
+      .catch(() => {})
+  }, [orgId])
 
   async function load() {
     if (!orgId) return

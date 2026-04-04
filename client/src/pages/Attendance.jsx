@@ -738,6 +738,7 @@ export default function Attendance() {
   const [endDate,   setEnd]       = useState(todayStr())
   const [fStatus,   setFStatus]   = useState('')
   const [fDept,     setFDept]     = useState('')
+  const [depts,     setDepts]     = useState([])
 
   const [logSearch,     setLogSearch]     = useState('')
   const [logTotal,      setLogTotal]      = useState(null)
@@ -816,7 +817,13 @@ export default function Attendance() {
   }
 
   useEffect(() => {
-    if (ready && orgId) { loadEmps(orgId); loadToday(orgId) }
+    if (ready && orgId) {
+      loadEmps(orgId)
+      loadToday(orgId)
+      api.get(`/organizations/${orgId}/employees/meta/departments`)
+        .then(r => setDepts(r.data?.departments || []))
+        .catch(() => {})
+    }
   }, [ready, orgId])
 
   useEffect(() => {
@@ -847,8 +854,6 @@ export default function Attendance() {
     if (fDept   && r.department !== fDept) return false
     return true
   })
-
-  const depts = [...new Set((today?.records || []).map(r => r.department).filter(Boolean))]
 
   const TABS = [
     { id:'today',   label:"Today's Attendance", icon:Calendar    },
@@ -1040,6 +1045,16 @@ export default function Attendance() {
           <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'flex-end' }}>
             <Input label="From" type="date" value={startDate} onChange={e => setStart(e.target.value)} style={{ width:160 }}/>
             <Input label="To"   type="date" value={endDate}   onChange={e => setEnd(e.target.value)}   style={{ width:160 }}/>
+            {depts.length > 0 && (
+              <div style={{ paddingBottom:2 }}>
+                <label style={{ fontSize:'0.72rem', color:'var(--text-dim)', display:'block', marginBottom:4 }}>Department</label>
+                <select value={fDept} onChange={e => setFDept(e.target.value)}
+                  className="field-input" style={{ width:'auto', fontSize:'0.8125rem' }}>
+                  <option value="">All Departments</option>
+                  {depts.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+            )}
             <div style={{ paddingBottom:2 }}>
               <Button onClick={() => loadRange(orgId)} loading={loading}><Filter size={13}/> Generate Report</Button>
             </div>

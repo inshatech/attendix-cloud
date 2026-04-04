@@ -54,6 +54,21 @@ async function totpEnforced(role) {
          (role === 'user'    && c.enforceForUsers);
 }
 
+// ── Trusted device helpers ────────────────────────────────────────────────────
+const MAX_TRUSTED_DEVICES = 10;
+function isTrustedDevice(u, rawToken) {
+  if (!rawToken || !u.trustedDevices?.length) return false;
+  const h = hashToken(rawToken);
+  return u.trustedDevices.some(d => d.tokenHash === h);
+}
+async function addTrustedDevice(userId, rawToken, label) {
+  const h = hashToken(rawToken);
+  const entry = { tokenHash: h, label: label.slice(0, 120), createdAt: new Date() };
+  await AuthUser.updateOne({ userId }, {
+    $push: { trustedDevices: { $each: [entry], $slice: -MAX_TRUSTED_DEVICES } },
+  });
+}
+
 // Pre-auth sessions for 2FA gate (5-min TTL, in-memory)
 const preAuth = new Map();
 function mkPreAuth(userId) {
@@ -104,7 +119,7 @@ router.post('/request-otp', otpSendLimiter, async (req, res) => {
 // ── VERIFY OTP ────────────────────────────────────────────────────────────────
 router.post('/verify-otp', otpVerifyLimiter, async (req, res) => {
   try {
-    const { mobile, email, otp } = req.body;
+    const { mobile, email, otp, deviceToken } = req.body;
     if (!otp || (!mobile && !email)) return res.status(400).json({ error: 'Provide mobile/email and otp' });
     const q = mobile ? { mobile: mobile.trim() } : { email: email.trim().toLowerCase() };
     const u = await AuthUser.findOne(q);
@@ -129,8 +144,14 @@ router.post('/verify-otp', otpVerifyLimiter, async (req, res) => {
         loginAttempts: 0, lockedUntil: null,
       },
     });
-    if ((u.totpEnabled || await totpEnforced(u.role)) && u.totpSecret)
+    if ((u.totpEnabled || await totpEnforced(u.role)) && u.totpSecret) {
+      if (isTrustedDevice(u, deviceToken)) {
+        const tokens = await issueTokens(u, req.headers['user-agent']);
+        await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: req.ip } });
+        return res.json({ status: 'success', role: u.role, name: u.name, ...tokens });
+      }
       return res.json({ status: 'success', requires2FA: true, preAuthToken: mkPreAuth(u.userId) });
+    }
 
     const tokens = await issueTokens(u, req.headers['user-agent']);
     await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: req.ip } });
@@ -141,7 +162,7 @@ router.post('/verify-otp', otpVerifyLimiter, async (req, res) => {
 // ── PASSWORD LOGIN ────────────────────────────────────────────────────────────
 router.post('/login', loginLimiter, async (req, res) => {
   try {
-    const { mobile, email, password } = req.body;
+    const { mobile, email, password, deviceToken } = req.body;
     if (!password || (!mobile && !email)) return res.status(400).json({ error: 'Provide mobile/email and password' });
     const q = mobile ? { mobile: mobile.trim() } : { email: email.trim().toLowerCase() };
     const u = await AuthUser.findOne(q);
@@ -154,8 +175,14 @@ router.post('/login', loginLimiter, async (req, res) => {
       const n = await failAttempt(u);
       return res.status(401).json({ error: 'Invalid credentials', attemptsRemaining: Math.max(0, MAX_ATTEMPTS - n) });
     }
-    if ((u.totpEnabled || await totpEnforced(u.role)) && u.totpSecret)
+    if ((u.totpEnabled || await totpEnforced(u.role)) && u.totpSecret) {
+      if (isTrustedDevice(u, deviceToken)) {
+        const tokens = await issueTokens(u, req.headers['user-agent']);
+        await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: req.ip } });
+        return res.json({ status: 'success', role: u.role, name: u.name, ...tokens });
+      }
       return res.json({ status: 'success', requires2FA: true, preAuthToken: mkPreAuth(u.userId) });
+    }
 
     const tokens = await issueTokens(u, req.headers['user-agent']);
     await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: req.ip } });
@@ -166,7 +193,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 // ── TOTP 2FA VERIFY ───────────────────────────────────────────────────────────
 router.post('/totp/verify', loginLimiter, async (req, res) => {
   try {
-    const { preAuthToken, totpToken, backupCode } = req.body;
+    const { preAuthToken, totpToken, backupCode, rememberDevice } = req.body;
     if (!preAuthToken) return res.status(400).json({ error: 'preAuthToken required' });
     const userId = usePreAuth(preAuthToken);
     if (!userId) return res.status(401).json({ error: 'Session expired. Log in again.' });
@@ -186,7 +213,15 @@ router.post('/totp/verify', loginLimiter, async (req, res) => {
     if (!ok) { await failAttempt(u); return res.status(401).json({ error: 'Invalid 2FA code' }); }
     const tokens = await issueTokens(u, req.headers['user-agent']);
     await AuthUser.updateOne({ userId }, { $set: { lastLoginIp: req.ip } });
-    res.json({ status: 'success', role: u.role, name: u.name, ...tokens });
+
+    let newDeviceToken;
+    if (rememberDevice) {
+      newDeviceToken = uuidv4();
+      const ua = req.headers['user-agent'] || '';
+      await addTrustedDevice(userId, newDeviceToken, ua);
+    }
+
+    res.json({ status: 'success', role: u.role, name: u.name, ...tokens, ...(newDeviceToken ? { deviceToken: newDeviceToken } : {}) });
   } catch (e) { res.status(500).json({ error: '2FA failed' }); }
 });
 
@@ -491,7 +526,7 @@ const { OAuth2Client } = require('google-auth-library');
 
 router.post('/google', async (req, res) => {
   try {
-    const { credential } = req.body;
+    const { credential, deviceToken } = req.body;
     if (!credential) return res.status(400).json({ error: 'Google credential required' });
 
     const { Plugin } = require('../models/Plugin');
@@ -539,6 +574,11 @@ router.post('/google', async (req, res) => {
 
     // 2FA check
     if (await totpEnforced(user.role) && user.totpEnabled) {
+      if (isTrustedDevice(user, deviceToken)) {
+        const ua = req.headers['user-agent'] || '';
+        const { accessToken, refreshToken, expiresIn } = await issueTokens(user, ua);
+        return res.json({ status: 'success', ...tokenPayload(user), accessToken, refreshToken, expiresIn });
+      }
       const pre = uuidv4();
       await AuthUser.updateOne({ userId: user.userId }, { $set: { preAuthToken: pre, preAuthExpires: new Date(Date.now() + 300000) } });
       return res.json({ requires2FA: true, preAuthToken: pre });

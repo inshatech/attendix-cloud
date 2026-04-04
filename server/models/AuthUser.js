@@ -41,6 +41,11 @@ const AuthUserSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
     expiresAt: Date,
   }],
+  trustedDevices: [{
+    tokenHash: { type: String, required: true },
+    label:     { type: String, default: '' },
+    createdAt: { type: Date, default: Date.now },
+  }],
   allowedBridges:     { type: [String], default: [] },
   modules:            { type: [ModuleSchema], default: [] },
   lastLoginAt:        { type: Date,   default: null },

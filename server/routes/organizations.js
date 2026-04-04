@@ -516,7 +516,11 @@ router.get('/organizations/:orgId/devices/:deviceId/users', requireAuth, general
 
     // Also enrich with employee name if linked
     const Employee = mongoose.model('Employee');
-    const users = await MachineUser.find({ bridgeId: org.bridgeId, deviceId: req.params.deviceId }).lean();
+    const { uidFrom, uidTo } = req.query;
+    const muFilter = { bridgeId: org.bridgeId, deviceId: req.params.deviceId };
+    if (uidFrom !== undefined) muFilter.uid = { ...muFilter.uid, $gte: Number(uidFrom) };
+    if (uidTo   !== undefined) muFilter.uid = { ...muFilter.uid, $lte: Number(uidTo) };
+    const users = await MachineUser.find(muFilter).lean();
 
     const linked = users.filter(u => u.userId && String(u.userId).startsWith('emp-')).length;
 

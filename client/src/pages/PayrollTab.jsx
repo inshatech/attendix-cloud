@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   DollarSign, TrendingUp, Users, ChevronDown, ChevronRight,
@@ -738,10 +738,19 @@ export default function PayrollTab({ orgId }) {
   const [startDate, setStart]   = useState(monthStart())
   const [endDate,   setEnd]     = useState(todayStr())
   const [fDept,     setFDept]   = useState('')
+  const [depts,     setDepts]   = useState([])
   const [data,      setData]    = useState(null)
   const [loading,   setLoad]    = useState(false)
   const [error,     setError]   = useState(null)
   const [selected,  setSelected]= useState(new Set())
+
+  useEffect(() => {
+    if (!orgId) return
+    setFDept('')
+    api.get(`/organizations/${orgId}/employees/meta/departments`)
+      .then(r => setDepts(r.data?.departments || []))
+      .catch(() => {})
+  }, [orgId])
 
   async function load() {
     if (!orgId) return
@@ -760,8 +769,6 @@ export default function PayrollTab({ orgId }) {
     if (!data?.data) return []
     return fDept ? data.data.filter(r => r.department === fDept) : data.data
   }, [data, fDept])
-
-  const depts = useMemo(() => [...new Set((data?.data||[]).map(r => r.department).filter(Boolean))], [data])
 
   function toggleAll() {
     if (selected.size === filtered.length) setSelected(new Set())

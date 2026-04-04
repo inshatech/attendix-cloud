@@ -163,6 +163,7 @@ var routeTickets     = require('./routes/tickets');
 var routeHolidays    = require('./routes/holidays');
 var routeCoupons     = require('./routes/coupons');
 var routeEmployees   = require('./routes/employees');
+var routeDepartments = require('./routes/departments');
 var routeAttendance  = require('./routes/attendance');
 
 // ── ABOUT PAGE (public — serves About Us content to frontend) ────────────────
@@ -195,6 +196,7 @@ app.use('/admin',         routeAdminOrgs);
 app.use('/admin',         routeAdminUsers);
 app.use('/user',          routeUserSelf);
 app.use('/',              subRouter);
+app.use('/',              routeDepartments);
 app.use('/',              orgRouter);
 app.use('/',              routeTickets);
 app.use('/',              routeHolidays);
@@ -327,6 +329,7 @@ async function pushDeviceConfig(bridgeId, socket) {
 subService.init({ Bridge, Device, bridgeMap, socketSend });
 initOrgRoutes({ Bridge, Device, MachineUser, bridgeMap, socketSend, pushDeviceConfig, queueTunnel });
 routeAdminOrgs.init({ Bridge, Device, MachineUser, AttendanceLog, bridgeMap });
+routeDepartments.init({ Organization: require('./models/Organization') });
 routeEmployees.init({ MachineUser, AttendanceLog, Organization: require('./models/Organization') });
 routeAttendance.init({ AttendanceLog, Device, MachineUser, bridgeMap });
 

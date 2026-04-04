@@ -343,11 +343,7 @@ export default function Profile() {
                 <CheckCircle2 size={20} style={{ color:'#34d399', flexShrink:0 }} />
                 <div><p style={{ fontSize:'0.875rem', fontWeight:600, color:'#34d399' }}>2FA is active</p><p style={{ fontSize:'0.75rem', color:'var(--text-muted)', marginTop:2 }}>Your account is protected with an authenticator app.</p></div>
               </div>
-              {twofa.enforced ? (
-                <p style={{ fontSize:'0.75rem', color:'var(--text-muted)', fontFamily:'monospace' }}>2FA is enforced by the administrator and cannot be disabled.</p>
-              ) : (
-                <Button size="sm" variant="danger" onClick={() => { setDisModal(true); setDisCode('') }}><Shield size={13} /> Disable 2FA</Button>
-              )}
+              <Button size="sm" variant="danger" onClick={() => { setDisModal(true); setDisCode('') }}><Shield size={13} /> Disable 2FA</Button>
             </div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:12 }}>

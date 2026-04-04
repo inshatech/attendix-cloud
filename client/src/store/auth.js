@@ -36,9 +36,9 @@ export const useAuth = create((set, get) => ({
         set({ user: r.data, ready: true })
         return
       } catch {
-        // Refresh token also invalid — clear everything
+        // Refresh token also invalid — clear auth keys only (preserve theme, device trust)
         sessionStorage.clear()
-        localStorage.clear()
+        localStorage.removeItem('rt')
       }
     }
 
@@ -56,7 +56,8 @@ export const useAuth = create((set, get) => ({
   logout: async () => {
     try { await api.post('/auth/logout', { refreshToken: localStorage.getItem('rt') }) } catch {}
     sessionStorage.clear()
-    localStorage.clear()
+    // Preserve theme and device trust token — only clear auth keys
+    localStorage.removeItem('rt')
     set({ user: null })
     window.location.href = '/login'
   },

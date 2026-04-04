@@ -44,7 +44,8 @@ function Divider({ label = 'or' }) {
 /* ── 2FA Modal ── */
 function TwoFAModal({ open, onClose, onVerify, busy }) {
   const [otp, setOtp] = useState('')
-  useEffect(() => { if (open) setOtp('') }, [open])
+  const [remember, setRemember] = useState(false)
+  useEffect(() => { if (open) { setOtp(''); setRemember(false) } }, [open])
   return (
     <Modal open={open} onClose={onClose} title={null} size="sm" noBodyPad>
       <div style={{ padding: '32px 28px 28px', textAlign: 'center' }}>
@@ -62,7 +63,15 @@ function TwoFAModal({ open, onClose, onVerify, busy }) {
           Enter the 6-digit code from your authenticator app
         </p>
         <OtpInput value={otp} onChange={setOtp} autoFocus />
-        <motion.button onClick={() => onVerify(otp)} disabled={otp.length !== 6 || busy}
+        {/* Remember this device */}
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16, cursor: 'pointer' }}>
+          <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)}
+            style={{ width: 15, height: 15, accentColor: 'var(--accent)', cursor: 'pointer' }} />
+          <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+            Don't ask on this browser again
+          </span>
+        </label>
+        <motion.button onClick={() => onVerify(otp, remember)} disabled={otp.length !== 6 || busy}
           whileHover={{ scale: otp.length === 6 ? 1.02 : 1 }} whileTap={{ scale: .97 }}
           style={{
             width: '100%', marginTop: 18, padding: '13px', borderRadius: 11,
@@ -271,6 +280,7 @@ export default function Login() {
   }, [tab, step])
 
   const after = res => {
+    if (res.deviceToken) localStorage.setItem('tfa_dt', res.deviceToken)
     setUser({ name: res.name, role: res.role, userId: res.userId }, res.accessToken, res.refreshToken)
     nav(res.role === 'admin' ? '/admin/users' : '/dashboard', { replace: true })
   }
@@ -287,7 +297,8 @@ export default function Login() {
     if (otp.length !== 6) return toast('Enter all 6 digits', 'error')
     setBusy(true)
     try {
-      const r = await api.post('/auth/verify-otp', { ...parseId(id), otp })
+      const deviceToken = localStorage.getItem('tfa_dt') || undefined
+      const r = await api.post('/auth/verify-otp', { ...parseId(id), otp, deviceToken })
       if (r.requires2FA) { setPre(r.preAuthToken); setShow2FA(true); return }
       after(r)
     } catch (e) { toast(e.message, 'error') }
@@ -298,17 +309,21 @@ export default function Login() {
     if (!id.trim() || !pw) return toast('Enter email/mobile and password', 'error')
     setBusy(true)
     try {
-      const r = await api.post('/auth/login', { ...parseId(id), password: pw })
+      const deviceToken = localStorage.getItem('tfa_dt') || undefined
+      const r = await api.post('/auth/login', { ...parseId(id), password: pw, deviceToken })
       if (r.requires2FA) { setPre(r.preAuthToken); setShow2FA(true); return }
       after(r)
     } catch (e) { toast(e.message, 'error') }
     finally { setBusy(false) }
   }
 
-  async function verify2FA(code) {
+  async function verify2FA(code, rememberDevice = false) {
     if (code.length !== 6) return toast('Enter all 6 digits', 'error')
     setBusy(true)
-    try { const r = await api.post('/auth/totp/verify', { preAuthToken: pre, totpToken: code }); after(r) }
+    try {
+      const r = await api.post('/auth/totp/verify', { preAuthToken: pre, totpToken: code, rememberDevice })
+      after(r)
+    }
     catch (e) { toast(e.message, 'error') }
     finally { setBusy(false) }
   }
@@ -318,7 +333,8 @@ export default function Login() {
     const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
     renderGoogleButton('__google_btn', googleClientId, async (credential) => {
       try {
-        const r = await api.post('/auth/google', { credential })
+        const deviceToken = localStorage.getItem('tfa_dt') || undefined
+        const r = await api.post('/auth/google', { credential, deviceToken })
         if (r.requires2FA) { setPre(r.preAuthToken); setShow2FA(true); return }
         after(r)
       } catch (e) { toast(e.message || 'Google Sign-In failed', 'error') }

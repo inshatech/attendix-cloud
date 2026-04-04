@@ -313,16 +313,6 @@ router.post('/2fa/disable', async (req, res) => {
     if (!u) return res.status(404).json({ error: 'User not found' });
     if (!u.totpEnabled) return res.status(400).json({ error: '2FA is not currently enabled' });
 
-    // Check if admin enforces 2FA for this role
-    const plug = await Plugin.findOne({ name: 'totp_2fa' }).lean();
-    const c    = plug?.config || {};
-    const enforced = plug?.enabled && (
-      (u.role === 'admin'   && c.enforceForAdmins)  ||
-      (u.role === 'support' && c.enforceForSupport) ||
-      (u.role === 'user'    && c.enforceForUsers)
-    );
-    if (enforced)
-      return res.status(403).json({ error: '2FA is enforced for your role by the administrator and cannot be disabled.' });
 
     let ok = false;
     if (totpToken) {
