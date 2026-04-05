@@ -39,6 +39,16 @@ const OrganizationSchema = new mongoose.Schema({
   subscriptionId: { type: String, default: null },
 
   meta:           { type: Object, default: {} },
+
+  // Daily attendance report schedule
+  reportSchedule: {
+    enabled:      { type: Boolean, default: false },
+    sendTime:     { type: String,  default: '20:00' },    // HH:MM 24h in org timezone
+    timezone:     { type: String,  default: 'Asia/Kolkata' },
+    recipients:   { type: Array,   default: [] },         // [{ name, email, mobile }]
+    lastSentAt:   { type: Date,    default: null },
+    lastSentDate: { type: String,  default: null },       // YYYY-MM-DD, prevents double-send
+  },
 }, { timestamps: true });
 
 OrganizationSchema.index({ ownerId: 1, isActive: 1 });

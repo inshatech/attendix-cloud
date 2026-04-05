@@ -10,16 +10,19 @@ const { requireAuth, requireRole } = require('../auth/middleware');
 const { generalApiLimiter, adminApiLimiter, strictAdminLimiter } = require('../auth/rateLimits');
 const { uploadBase64, deleteImage, publicIdFromUrl } = require('../services/uploadService');
 
+const { buildReportData, sendDailyReport } = require('../services/sendAttendanceReport');
+
 // Runtime refs injected from app.js after startup
-let _Bridge, _Device, _MachineUser, _bridgeMap, _socketSend, _queueTunnel;
+let _Bridge, _Device, _MachineUser, _AttendanceLog, _bridgeMap, _socketSend, _queueTunnel;
 
 function init(refs) {
-  _Bridge      = refs.Bridge;
-  _Device      = refs.Device;
-  _MachineUser = refs.MachineUser;
-  _bridgeMap   = refs.bridgeMap;
-  _socketSend  = refs.socketSend;
-  _queueTunnel = refs.queueTunnel;
+  _Bridge        = refs.Bridge;
+  _Device        = refs.Device;
+  _MachineUser   = refs.MachineUser;
+  _AttendanceLog = refs.AttendanceLog;
+  _bridgeMap     = refs.bridgeMap;
+  _socketSend    = refs.socketSend;
+  _queueTunnel   = refs.queueTunnel;
 }
 
 // Helper: verify caller owns (or is admin of) the org
@@ -649,6 +652,78 @@ router.get('/organizations/:orgId/machine-users', requireAuth, generalApiLimiter
     const linked = mus.filter(u => u.userId && String(u.userId).startsWith('emp-')).length;
     res.json({ status: 'success', total: mus.length, linked, data: mus });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── REPORT SCHEDULE ───────────────────────────────────────────────────────────
+
+// GET /organizations/:orgId/report-schedule
+router.get('/organizations/:orgId/report-schedule', requireAuth, generalApiLimiter, async (req, res) => {
+  try {
+    const org = await getOwnedOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    res.json({ status: 'success', data: org.reportSchedule || {} });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /organizations/:orgId/report-schedule
+router.put('/organizations/:orgId/report-schedule', requireAuth, generalApiLimiter, async (req, res) => {
+  try {
+    const org = await getOwnedOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+
+    const { enabled, sendTime, timezone, recipients } = req.body;
+
+    // Validate sendTime format HH:MM
+    if (sendTime && !/^\d{2}:\d{2}$/.test(sendTime)) {
+      return res.status(400).json({ error: 'sendTime must be HH:MM format (e.g. 20:00)' });
+    }
+    // Validate recipients
+    if (recipients && !Array.isArray(recipients)) {
+      return res.status(400).json({ error: 'recipients must be an array' });
+    }
+    const cleanRecipients = (recipients || []).map(r => ({
+      name:   String(r.name  || '').trim(),
+      email:  String(r.email || '').trim().toLowerCase(),
+      mobile: String(r.mobile|| '').trim(),
+    })).filter(r => r.email || r.mobile);
+
+    const update = {};
+    if (typeof enabled === 'boolean')  update['reportSchedule.enabled']    = enabled;
+    if (sendTime)                      update['reportSchedule.sendTime']    = sendTime;
+    if (timezone)                      update['reportSchedule.timezone']    = timezone;
+    if (recipients !== undefined)      update['reportSchedule.recipients']  = cleanRecipients;
+
+    const updated = await Organization.findOneAndUpdate(
+      { orgId: req.params.orgId },
+      { $set: update },
+      { new: true }
+    );
+    res.json({ status: 'success', data: updated.reportSchedule });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /organizations/:orgId/reports/send-now
+router.post('/organizations/:orgId/reports/send-now', requireAuth, generalApiLimiter, async (req, res) => {
+  try {
+    const org = await getOwnedOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (!org.bridgeId) return res.status(400).json({ error: 'No bridge connected' });
+
+    const tz        = org.reportSchedule?.timezone || 'Asia/Kolkata';
+    const recipients= org.reportSchedule?.recipients || [];
+    if (!recipients.length) return res.status(400).json({ error: 'No recipients configured. Add at least one recipient first.' });
+
+    // Determine date: use provided or today in org timezone
+    const date = req.body.date || new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+
+    const result = await sendDailyReport(org.orgId, date, tz, recipients, {
+      AttendanceLog: _AttendanceLog, MachineUser: _MachineUser,
+    });
+
+    res.json({ status: 'success', date, ...result });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 module.exports = router;

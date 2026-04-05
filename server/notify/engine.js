@@ -108,12 +108,14 @@ async function sendEmail(to, subject, html, text) {
     cfg = { service:'gmail', auth:{ user:c.user, pass:c.pass } };
   } else {
     if (!c.host) throw new Error('SMTP: host missing');
+    if (c.host.includes('@')) throw new Error(`SMTP: 'host' must be a server hostname (e.g. smtp.gmail.com), not an email address. Found: "${c.host}". Go to Admin → Plugins → Email → fix the Host field.`);
     if (!c.user) throw new Error('SMTP: user missing');
     if (!c.pass) throw new Error('SMTP: password missing. Save credentials in Admin → Plugins → Email.');
     cfg = { host:c.host, port:Number(c.port)||587, secure:Boolean(c.secure), auth:{ user:c.user, pass:c.pass } };
   }
   const t = nodemailer.createTransport(cfg);
   await t.verify().catch(err => {
+    if (err.code === 'EBADNAME' || err.message.includes('EBADNAME')) throw new Error(`SMTP: invalid hostname "${cfg.host || cfg.service}" — set a valid SMTP host in Admin → Plugins → Email (e.g. smtp.gmail.com).`);
     if (err.message.includes('Missing credentials')||err.message.includes('PLAIN')) throw new Error('SMTP auth failed: empty username or password. Go to Admin → Plugins → Email → save credentials.');
     if (err.code === 'EAUTH') throw new Error(`SMTP auth rejected: wrong username/password. ${err.message}`);
     throw new Error(`SMTP connection failed: ${err.message}`);

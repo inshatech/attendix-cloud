@@ -351,12 +351,46 @@ async function pushDeviceConfig(bridgeId, socket) {
 // ── INJECT RUNTIME REFS INTO SUB-SERVICES ────────────────────────────────────
 // Done here because Bridge/Device/bridgeMap/socketSend are defined above
 subService.init({ Bridge, Device, bridgeMap, socketSend });
-initOrgRoutes({ Bridge, Device, MachineUser, bridgeMap, socketSend, pushDeviceConfig, queueTunnel });
+initOrgRoutes({ Bridge, Device, MachineUser, AttendanceLog, bridgeMap, socketSend, pushDeviceConfig, queueTunnel });
 routeAdminOrgs.init({ Bridge, Device, MachineUser, AttendanceLog, SyncState, bridgeMap, pushDeviceConfig, queueTunnel, socketSend });
 routeDepartments.init({ Organization: require('./models/Organization') });
 routeEmployees.init({ MachineUser, AttendanceLog, Organization: require('./models/Organization') });
 routeAttendance.init({ AttendanceLog, Device, MachineUser, bridgeMap });
 routeAdminUsers.init({ bridgeMap });
+
+// ── DAILY ATTENDANCE REPORT CRON (runs every minute) ─────────────────────────
+const { sendDailyReport: _sendDailyReport } = require('./services/sendAttendanceReport');
+const Organization = require('./models/Organization');
+
+setInterval(async () => {
+  try {
+    const now  = new Date();
+    const orgs = await Organization.find({ isActive: true, 'reportSchedule.enabled': true }).lean();
+    for (const org of orgs) {
+      const sch = org.reportSchedule;
+      if (!sch?.sendTime || !sch?.recipients?.length) continue;
+      const tz = sch.timezone || 'Asia/Kolkata';
+      // Get current HH:MM and date in org's timezone
+      const parts = Object.fromEntries(
+        new Intl.DateTimeFormat('en-CA', {
+          timeZone: tz, year:'numeric', month:'2-digit', day:'2-digit',
+          hour:'2-digit', minute:'2-digit', hour12: false,
+        }).formatToParts(now).map(p => [p.type, p.value])
+      );
+      const currentTime = `${parts.hour}:${parts.minute}`;
+      const currentDate = `${parts.year}-${parts.month}-${parts.day}`;
+      if (currentTime !== sch.sendTime) continue;
+      if (sch.lastSentDate === currentDate) continue; // already sent today
+      // Lock immediately to prevent double-send if interval fires twice
+      await Organization.updateOne({ orgId: org.orgId }, {
+        $set: { 'reportSchedule.lastSentDate': currentDate, 'reportSchedule.lastSentAt': now },
+      });
+      _sendDailyReport(org.orgId, currentDate, tz, sch.recipients, { AttendanceLog, MachineUser })
+        .then(r => console.log(`[report] ${org.name} → ${r.emailSent} email(s), ${r.waSent} WA · ${currentDate}`))
+        .catch(e => console.error(`[report] ${org.name} error:`, e.message));
+    }
+  } catch (e) { console.error('[report-cron] error:', e.message); }
+}, 60 * 1000);
 
 // ── SUBSCRIPTION EXPIRY CRON (runs every hour) ────────────────────────────────
 setInterval(async () => {

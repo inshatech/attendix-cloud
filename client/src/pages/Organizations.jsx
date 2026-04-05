@@ -6,7 +6,8 @@ import {
   Building2, Plus, Cpu, Server, Trash2, ChevronDown, ChevronUp,
   MapPin, Phone, Mail, RefreshCw, Link2, Power, PowerOff,
   Edit3, Info, Clock, Wifi, WifiOff, RotateCcw, Volume2, Image,
-  Users, UserCheck, UserX, Fingerprint, Copy, CheckCircle2, Key, Globe, Shield
+  Users, UserCheck, UserX, Fingerprint, Copy, CheckCircle2, Key, Globe, Shield,
+  Bell, Send, Trash, PlusCircle
 } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { UserPage, UserStatCard, UserActionBtn } from '../components/ui/UserUI'
@@ -544,6 +545,184 @@ function OrgLogo({ org, onUpdate }) {
 }
 
 // ── Org Card ──────────────────────────────────────────────────────────────────
+// ── Report Schedule Modal ─────────────────────────────────────────────────────
+const TIMEZONES = [
+  'Asia/Kolkata','Asia/Karachi','Asia/Dhaka','Asia/Dubai','Asia/Singapore',
+  'Asia/Tokyo','Asia/Shanghai','Europe/London','Europe/Paris','Europe/Berlin',
+  'America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+  'Australia/Sydney','Africa/Nairobi','Pacific/Auckland',
+]
+
+const EMPTY_RECIP = { name: '', email: '', mobile: '' }
+
+function ReportScheduleModal({ open, onClose, orgId }) {
+  const [sch,      setSch]    = useState({ enabled: false, sendTime: '20:00', timezone: 'Asia/Kolkata', recipients: [] })
+  const [loading,  setLoad]   = useState(false)
+  const [busy,     setBusy]   = useState(false)
+  const [sending,  setSend]   = useState(false)
+  const [lastResult, setLastResult] = useState(null)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    if (!open || !orgId) return
+    setLoad(true); setLastResult(null)
+    api.get(`/organizations/${orgId}/report-schedule`)
+      .then(r => setSch({
+        enabled:    r.data?.enabled    ?? false,
+        sendTime:   r.data?.sendTime   || '20:00',
+        timezone:   r.data?.timezone   || 'Asia/Kolkata',
+        recipients: r.data?.recipients || [],
+      }))
+      .catch(() => {})
+      .finally(() => setLoad(false))
+  }, [open, orgId])
+
+  function setField(k, v) { setSch(s => ({ ...s, [k]: v })) }
+
+  function addRecipient() {
+    setSch(s => ({ ...s, recipients: [...s.recipients, { ...EMPTY_RECIP }] }))
+  }
+  function removeRecipient(i) {
+    setSch(s => ({ ...s, recipients: s.recipients.filter((_, j) => j !== i) }))
+  }
+  function updateRecipient(i, k, v) {
+    setSch(s => ({ ...s, recipients: s.recipients.map((r, j) => j === i ? { ...r, [k]: v } : r) }))
+  }
+
+  async function save() {
+    setBusy(true)
+    try {
+      await api.put(`/organizations/${orgId}/report-schedule`, sch)
+      toast('Report schedule saved', 'success')
+    } catch (e) { toast(e.message, 'error') }
+    finally { setBusy(false) }
+  }
+
+  async function sendNow() {
+    setSend(true); setLastResult(null)
+    try {
+      const r = await api.post(`/organizations/${orgId}/reports/send-now`)
+      setLastResult(r)
+      toast(`Sent! ${r.emailSent} email(s)${r.waSent ? `, ${r.waSent} WhatsApp` : ''}`, 'success')
+    } catch (e) { toast(e.message, 'error') }
+    finally { setSend(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Daily Attendance Report" description="Automated end-of-day summary via Email & WhatsApp" size="lg">
+      {loading ? (
+        <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.8rem' }}>Loading…</div>
+      ) : (<>
+        {/* Enable + time + timezone */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Toggle row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 10, background: 'var(--bg-surface2)', border: '1px solid var(--border)' }}>
+            <div>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Bell size={13} style={{ color: 'var(--accent)' }}/> Automated Daily Report
+              </p>
+              <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                Sends at the scheduled time every day
+              </p>
+            </div>
+            <button onClick={() => setField('enabled', !sch.enabled)}
+              style={{
+                width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', transition: 'all .2s', position: 'relative',
+                background: sch.enabled ? 'var(--accent)' : 'var(--bg-elevated)',
+              }}>
+              <span style={{
+                position: 'absolute', top: 3, left: sch.enabled ? 22 : 3,
+                width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left .2s',
+              }}/>
+            </button>
+          </div>
+
+          {/* Time + Timezone */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="field-label flex items-center gap-1.5"><Clock size={10}/> Send Time (24h)</label>
+              <input type="time" className="field-input" value={sch.sendTime}
+                onChange={e => setField('sendTime', e.target.value)}
+                style={{ fontFamily: 'monospace' }}/>
+            </div>
+            <div>
+              <label className="field-label flex items-center gap-1.5"><Globe size={10}/> Timezone</label>
+              <select className="field-input" value={sch.timezone} onChange={e => setField('timezone', e.target.value)}>
+                {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz.replace('_', ' ')}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Recipients */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <label className="field-label" style={{ margin: 0 }}>Recipients · {sch.recipients.length}</label>
+              <button onClick={addRecipient}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', fontFamily: 'monospace', color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>
+                <PlusCircle size={12}/> Add
+              </button>
+            </div>
+
+            {sch.recipients.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '16px 0', fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'monospace', border: '1px dashed var(--border)', borderRadius: 8 }}>
+                No recipients yet. Add email / WhatsApp contacts.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '22vh', overflowY: 'auto' }}>
+                {sch.recipients.map((r, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1.1fr auto', gap: 6, alignItems: 'center' }}>
+                    <input className="field-input" placeholder="Name" value={r.name}
+                      onChange={e => updateRecipient(i, 'name', e.target.value)}
+                      style={{ padding: '6px 10px', fontSize: '0.8rem' }}/>
+                    <input className="field-input" placeholder="Email" type="email" value={r.email}
+                      onChange={e => updateRecipient(i, 'email', e.target.value)}
+                      style={{ padding: '6px 10px', fontSize: '0.8rem' }}/>
+                    <input className="field-input" placeholder="+91 mobile (WA)" value={r.mobile}
+                      onChange={e => updateRecipient(i, 'mobile', e.target.value)}
+                      style={{ padding: '6px 10px', fontSize: '0.8rem', fontFamily: 'monospace' }}/>
+                    <button onClick={() => removeRecipient(i)}
+                      className="btn-icon btn-sm hover:text-red-400 hover:bg-red-500/10">
+                      <Trash size={12}/>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Info box */}
+          <div style={{ display: 'flex', gap: 10, padding: '10px 14px', borderRadius: 8, background: 'var(--accent-muted)', border: '1px solid var(--accent-border)' }}>
+            <Bell size={13} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }}/>
+            <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Email is sent via SMTP plugin. WhatsApp is sent only if the WhatsApp plugin is enabled by admin.
+              Mobile numbers must include country code (e.g. +91 9876543210).
+            </p>
+          </div>
+
+          {/* Last send result */}
+          {lastResult && (
+            <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(52,211,153,.07)', border: '1px solid rgba(52,211,153,.2)', fontSize: '0.75rem', fontFamily: 'monospace', color: '#34d399' }}>
+              ✓ Sent — {lastResult.emailSent} email(s){lastResult.waSent ? `, ${lastResult.waSent} WhatsApp` : ''}
+              {` · Present: ${lastResult.summary?.present}, Absent: ${lastResult.summary?.absent}, Late: ${lastResult.summary?.late}`}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+          <Button variant="secondary" onClick={sendNow} loading={sending} disabled={!sch.recipients.length}>
+            <Send size={13}/> Send Now
+          </Button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button onClick={save} loading={busy}><Bell size={13}/> Save Schedule</Button>
+          </div>
+        </div>
+      </>)}
+    </Modal>
+  )
+}
+
 function OrgCard({ org: init, onRefresh }) {
   const [org, setOrg]         = useState(init)
   const [open, setOpen]       = useState(false)
@@ -556,6 +735,7 @@ function OrgCard({ org: init, onRefresh }) {
   const [bridgeInfo,  setBridgeInfo]   = useState(null)
   const [showEditOrg, setShowEditOrg] = useState(false)
   const [showDelete, setShowDelete]   = useState(false)
+  const [showReport, setShowReport]   = useState(false)
   const [selectedDev, setSelectedDev] = useState(null)
   const [devForm, setDevForm] = useState({ ip:'', port:'4370', name:'', model:'', location:'' })
   const [editOrgForm, setEditOrgForm] = useState({})
@@ -730,8 +910,12 @@ function OrgCard({ org: init, onRefresh }) {
                 <Wifi size={13}/> Setup Bridge
               </Button>
             ) : (
-              <div style={{ display:'flex', gap:6 }}>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                 <Button size="sm" variant="secondary" onClick={showCredentials}><Key size={13}/> Credentials</Button>
+                <Button size="sm" variant="secondary" onClick={() => setShowReport(true)}>
+                  <Bell size={13}/> Report
+                  {org.reportSchedule?.enabled && <span style={{ width:6, height:6, borderRadius:'50%', background:'#34d399', display:'inline-block', marginLeft:2 }}/>}
+                </Button>
                 <Button size="sm" variant="secondary" onClick={togglePanel}><Cpu size={13}/> Machines {open?<ChevronUp size={12}/>:<ChevronDown size={12}/>}</Button>
               </div>
             )}
@@ -778,6 +962,8 @@ function OrgCard({ org: init, onRefresh }) {
         <DeviceActionsModal dev={selectedDev} orgId={org.orgId} bridgeId={org.bridgeId}
           open={showDetailDev} onClose={() => setShowDetail(false)} onRefresh={loadDevices}/>
       )}
+
+      <ReportScheduleModal open={showReport} onClose={() => setShowReport(false)} orgId={org.orgId}/>
 
       <Modal open={showEditOrg} onClose={() => setShowEditOrg(false)} title="Edit Organization" size="lg">
         <div className="grid grid-cols-2 gap-4">
