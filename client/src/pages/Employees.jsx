@@ -69,7 +69,7 @@ function CB({ checked, onChange, label }) {
 }
 
 // ── Add / Edit employee modal ──────────────────────────────────────────────────
-function EmployeeModal({ open, onClose, initial, orgId, shifts, onSaved }) {
+function EmployeeModal({ open, onClose, initial, orgId, shifts, depts, onSaved }) {
   const [form,    setForm]    = useState(EMPTY)
   const [photo,   setPhoto]   = useState(null)
   const [tab,     setTab]     = useState('personal')
@@ -306,7 +306,17 @@ function EmployeeModal({ open, onClose, initial, orgId, shifts, onSaved }) {
         {/* EMPLOYMENT */}
         {tab === 'employment' && <>
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Department"  icon={Building2} value={form.department}  onChange={sfe('department')}  placeholder="HR, IT, Finance…"/>
+            <div>
+              <label className="field-label flex items-center gap-1.5"><Building2 size={11}/> Department</label>
+              {depts && depts.length > 0 ? (
+                <select className="field-input" value={form.department} onChange={sfe('department')}>
+                  <option value="">— Select department —</option>
+                  {depts.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              ) : (
+                <input className="field-input" value={form.department} onChange={sfe('department')} placeholder="HR, IT, Finance…"/>
+              )}
+            </div>
             <Input label="Designation" icon={Briefcase} value={form.designation} onChange={sfe('designation')} placeholder="Manager, Engineer…"/>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -1328,7 +1338,7 @@ export default function Employees() {
     setDelBusy(true)
     try {
       await api.delete(`/organizations/${orgId}/employees/${delTarget.employeeId}`)
-      toast('Employee deleted','success'); setDel(null); load()
+      toast('Employee deleted','success'); setDel(null); load(); loadMeta(orgId)
     } catch (e) { toast(e.message,'error') }
     finally { setDelBusy(false) }
   }
@@ -1345,7 +1355,7 @@ export default function Employees() {
           <p style={{ fontSize:'0.9rem', color:'var(--text-muted)', marginTop:6 }}>{total} employees · HR management</p>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
-          <Button variant="secondary" size="sm" onClick={()=>load()}><RefreshCw size={13}/></Button>
+          <Button variant="secondary" size="sm" onClick={()=>{ load(); loadMeta(orgId) }}><RefreshCw size={13}/></Button>
           <Button variant="secondary" size="sm" onClick={()=>setDeptModal(true)}><Building2 size={13}/> Departments</Button>
           <Button variant="secondary" onClick={()=>setBulkModal(true)}><Cpu size={14}/> Import from Machine</Button>
           <Button onClick={()=>{ setEdit(null); setModal(true) }}><Plus size={15}/> Add Employee</Button>
@@ -1477,7 +1487,7 @@ export default function Employees() {
       <BulkImportModal open={bulkModal} onClose={()=>setBulkModal(false)}
         orgId={orgId} depts={depts} onDone={()=>{ load(); loadMeta(orgId) }}/>
       <EmployeeModal open={modal} onClose={()=>setModal(false)} initial={editing}
-        orgId={orgId} shifts={shifts} onSaved={()=>{ load(); loadMeta(orgId) }}/>
+        orgId={orgId} shifts={shifts} depts={depts} onSaved={()=>{ load(); loadMeta(orgId) }}/>
       <DetailModal open={!!viewing} onClose={()=>setView(null)}
         emp={viewing} orgId={orgId} onRefresh={()=>load()}/>
       <ConfirmModal open={!!delTarget} onClose={()=>setDel(null)} onConfirm={deleteEmp} loading={delBusy} danger

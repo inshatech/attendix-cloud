@@ -8,6 +8,7 @@ const Employee   = require('../models/Employee');
 const Shift      = require('../models/Shift');
 const Department = require('../models/Department');
 const { requireAuth, requireRole } = require('../auth/middleware');
+const { getActiveSubscription } = require('../services/subscriptionService');
 const { generalApiLimiter, adminApiLimiter, strictAdminLimiter } = require('../auth/rateLimits');
 const { uploadBase64, deleteImage, publicIdFromUrl } = require('../services/uploadService');
 
@@ -232,6 +233,20 @@ router.post('/organizations/:orgId/employees', requireAuth, generalApiLimiter, a
     if (!org) return res.status(404).json({ error: 'Organization not found' });
     if (!req.body.firstName) return res.status(400).json({ error: 'firstName is required' });
 
+    // Enforce subscription employee limit (skip for admin/support)
+    if (req.authUser.role !== 'admin' && req.authUser.role !== 'support') {
+      const subResult = await getActiveSubscription(req.authUser.userId);
+      if (subResult?.plan?.maxEmployees) {
+        const currentCount = await Employee.countDocuments({ orgId: req.params.orgId });
+        if (currentCount >= subResult.plan.maxEmployees) {
+          return res.status(403).json({
+            error: `Your ${subResult.plan.name} plan allows ${subResult.plan.maxEmployees} employees. Upgrade to add more.`,
+            code: 'LIMIT_EMPLOYEES',
+          });
+        }
+      }
+    }
+
     // Auto-generate employeeCode if not provided
     if (!req.body.employeeCode) {
       const count = await Employee.countDocuments({ orgId: req.params.orgId });
@@ -287,6 +302,14 @@ router.delete('/organizations/:orgId/employees/:employeeId', requireAuth, adminA
 
     const emp = await Employee.findOneAndDelete({ employeeId: req.params.employeeId, orgId: req.params.orgId });
     if (!emp) return res.status(404).json({ error: 'Employee not found' });
+
+    // Unlink from all MachineUser records so they can be re-linked to a new employee
+    if (_MachineUser) {
+      await _MachineUser.updateMany(
+        { userId: emp.employeeId },
+        { $set: { userId: null } }
+      );
+    }
 
     // Remove photo from Cloudinary if exists
     if (emp.photoUrl) {
@@ -514,8 +537,25 @@ router.post('/organizations/:orgId/employees/bulk-from-machine', requireAuth, ge
     if (!Array.isArray(rows) || rows.length === 0)
       return res.status(400).json({ error: 'rows array is required' });
 
+    // Enforce subscription employee limit (skip for admin/support)
+    let remainingSlots = Infinity;
+    if (req.authUser.role !== 'admin' && req.authUser.role !== 'support') {
+      const subResult = await getActiveSubscription(req.authUser.userId);
+      if (subResult?.plan?.maxEmployees) {
+        const currentCount = await Employee.countDocuments({ orgId: req.params.orgId });
+        remainingSlots = subResult.plan.maxEmployees - currentCount;
+        if (remainingSlots <= 0) {
+          return res.status(403).json({
+            error: `Your ${subResult.plan.name} plan allows ${subResult.plan.maxEmployees} employees. Upgrade to add more.`,
+            code: 'LIMIT_EMPLOYEES',
+          });
+        }
+      }
+    }
+
     let codeOffset = await Employee.countDocuments({ orgId: req.params.orgId });
     const results  = [];
+    let createdCount = 0;
 
     for (const row of rows) {
       const { uid, deviceId, name, department } = row;
@@ -523,12 +563,22 @@ router.post('/organizations/:orgId/employees/bulk-from-machine', requireAuth, ge
         results.push({ uid, deviceId, success: false, error: 'Name is required' });
         continue;
       }
+      // Stop creating once subscription limit is reached
+      if (createdCount >= remainingSlots) {
+        results.push({ uid, deviceId, success: false, error: 'Employee limit reached. Upgrade to add more.' });
+        continue;
+      }
       try {
-        // Check already linked
+        // Check already linked (verify employee still exists — guard against orphaned links)
         const mu = await _MachineUser.findOne({ bridgeId: org.bridgeId, deviceId, uid: Number(uid) });
         if (mu?.userId && String(mu.userId).startsWith('emp-')) {
-          results.push({ uid, deviceId, success: false, error: 'Already linked to an employee' });
-          continue;
+          const stillExists = await Employee.findOne({ employeeId: mu.userId }).lean();
+          if (stillExists) {
+            results.push({ uid, deviceId, success: false, error: 'Already linked to an employee' });
+            continue;
+          }
+          // Orphaned link — employee was deleted, clear it so we can re-link below
+          await _MachineUser.updateOne({ _id: mu._id }, { $set: { userId: null } });
         }
 
         const parts     = name.trim().split(/\s+/);
@@ -559,6 +609,7 @@ router.post('/organizations/:orgId/employees/bulk-from-machine', requireAuth, ge
           { $push: { machineEnrollments: { bridgeId: org.bridgeId, deviceId, uid: Number(uid), enrolledAt: new Date() } } }
         );
 
+        createdCount++;
         results.push({ uid, deviceId, success: true, employeeId: emp.employeeId, employeeCode: emp.employeeCode, name: emp.displayName || name.trim() });
       } catch (e) {
         if (e.code === 11000) results.push({ uid, deviceId, success: false, error: 'Employee code conflict' });

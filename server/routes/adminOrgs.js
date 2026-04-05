@@ -256,10 +256,29 @@ router.patch('/orgs/:orgId/machine-users/:id/unlink', requireAuth, ADMIN, async 
 router.delete('/orgs/:orgId/machine-users/unlinked', requireAuth, ADMIN, async (req, res) => {
   try {
     const org = await Organization.findOne({ orgId: req.params.orgId }).lean();
-    if (!org?.bridgeId) return res.json({ deleted: 0 });
-    // Delete records with no valid emp-xxx link (null, or leftover numeric device IDs like "1","2")
+    if (!org?.bridgeId) return res.json({ deleted: 0, orphansFixed: 0 });
+
+    // 1. Delete records with no valid emp-xxx link (null, numeric leftover IDs like "1","2")
     const r = await _MachineUser.deleteMany({ bridgeId: org.bridgeId, userId: { $not: /^emp-/ } });
-    res.json({ deleted: r.deletedCount });
+
+    // 2. Fix orphaned emp-xxx links — userId points to a deleted Employee
+    const Employee = require('../models/Employee');
+    const linked = await _MachineUser.find(
+      { bridgeId: org.bridgeId, userId: /^emp-/ },
+      { _id: 1, userId: 1 }
+    ).lean();
+    if (linked.length) {
+      const empIds = [...new Set(linked.map(m => m.userId))];
+      const existing = await Employee.find({ employeeId: { $in: empIds } }).select('employeeId').lean();
+      const existingSet = new Set(existing.map(e => e.employeeId));
+      const orphanIds = linked.filter(m => !existingSet.has(m.userId)).map(m => m._id);
+      if (orphanIds.length) {
+        await _MachineUser.updateMany({ _id: { $in: orphanIds } }, { $set: { userId: null } });
+      }
+      res.json({ deleted: r.deletedCount, orphansFixed: orphanIds.length });
+    } else {
+      res.json({ deleted: r.deletedCount, orphansFixed: 0 });
+    }
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
