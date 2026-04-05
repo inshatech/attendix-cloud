@@ -257,7 +257,8 @@ router.delete('/orgs/:orgId/machine-users/unlinked', requireAuth, ADMIN, async (
   try {
     const org = await Organization.findOne({ orgId: req.params.orgId }).lean();
     if (!org?.bridgeId) return res.json({ deleted: 0 });
-    const r = await _MachineUser.deleteMany({ bridgeId: org.bridgeId, userId: null });
+    // Delete records with no valid emp-xxx link (null, or leftover numeric device IDs like "1","2")
+    const r = await _MachineUser.deleteMany({ bridgeId: org.bridgeId, userId: { $not: /^emp-/ } });
     res.json({ deleted: r.deletedCount });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

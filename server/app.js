@@ -296,29 +296,29 @@ async function upsertUsers(rows) {
   let u = 0, m = 0;
   for (let i = 0; i < rows.length; i += 500) {
     const ops = rows.slice(i, i+500).map(r => {
-      // userId from the machine payload is a machine-internal field (often 0/null).
-      // It must NEVER overwrite a manually set emp-xxx link.
-      // Use $setOnInsert so userId is only written on brand-new documents.
-      const machineUserId = (r.userId != null && r.userId !== 0 && r.userId !== '' && r.userId !== false)
-        ? String(r.userId) : null;
+      // Device sends numeric userId (1, 2, 3...) = same as uid — meaningless in our system.
+      // Our system uses emp-xxx as the employee link (set only via link-machine route).
+      // NEVER write the machine's numeric userId into our userId field.
+      // $setOnInsert: null so brand-new documents start unlinked.
+      // $setOnInsert never runs on existing documents → emp-xxx links are always preserved.
       return {
         updateOne: {
           filter: { bridgeId: r.bridgeId, deviceId: r.deviceId, uid: Number(r.uid) },
           update: {
-            // Fields that are safe to always update (machine-side data)
+            // Machine-side data — safe to always overwrite
             $set: {
               bridgeId: r.bridgeId,
               deviceId: r.deviceId,
               uid:      Number(r.uid),
-              name:     r.name != null ? String(r.name) : null,
-              role:     r.role != null ? Number(r.role) : null,
+              name:     r.name     != null ? String(r.name)     : null,
+              role:     r.role     != null ? Number(r.role)     : null,
               cardno:   r.cardno   != null ? String(r.cardno)   : null,
               password: r.password != null ? String(r.password) : null,
               rawJson:  parseRawJson(r.rawJson),
               syncedAt: new Date(),
             },
-            // userId only written when inserting a new document — never overwrites existing emp-xxx links
-            $setOnInsert: { userId: machineUserId },
+            // userId starts as null on new docs; never touched on existing docs
+            $setOnInsert: { userId: null },
           },
           upsert: true,
         },
