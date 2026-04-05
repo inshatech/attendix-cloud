@@ -54,6 +54,8 @@ const Device = mongoose.model('Device', new mongoose.Schema({
   name:           { type: String,  default: 'Machine' },
   ip:             { type: String,  required: true },
   port:           { type: Number,  default: 4370 },
+  model:          { type: String,  default: null },
+  location:       { type: String,  default: null },
   enabled:        { type: Boolean, default: true, index: true },
   disabledAt:     { type: Date,    default: null },
   disabledReason: { type: String,  default: null },
@@ -293,13 +295,35 @@ async function upsertUsers(rows) {
   if (!rows?.length) return { upserted: 0, modified: 0 };
   let u = 0, m = 0;
   for (let i = 0; i < rows.length; i += 500) {
-    const ops = rows.slice(i, i+500).map(r => ({
-      updateOne: {
-        filter: { bridgeId: r.bridgeId, deviceId: r.deviceId, uid: Number(r.uid) },
-        update: { $set: { bridgeId:r.bridgeId, deviceId:r.deviceId, uid:Number(r.uid), userId:(r.userId!=null && r.userId!==0 && r.userId!=='' && r.userId!==false)?String(r.userId):null, name:r.name!=null?String(r.name):null, role:r.role!=null?Number(r.role):null, cardno:r.cardno!=null?String(r.cardno):null, password:r.password!=null?String(r.password):null, rawJson:parseRawJson(r.rawJson), syncedAt:new Date() } },
-        upsert: true,
-      },
-    }));
+    const ops = rows.slice(i, i+500).map(r => {
+      // userId from the machine payload is a machine-internal field (often 0/null).
+      // It must NEVER overwrite a manually set emp-xxx link.
+      // Use $setOnInsert so userId is only written on brand-new documents.
+      const machineUserId = (r.userId != null && r.userId !== 0 && r.userId !== '' && r.userId !== false)
+        ? String(r.userId) : null;
+      return {
+        updateOne: {
+          filter: { bridgeId: r.bridgeId, deviceId: r.deviceId, uid: Number(r.uid) },
+          update: {
+            // Fields that are safe to always update (machine-side data)
+            $set: {
+              bridgeId: r.bridgeId,
+              deviceId: r.deviceId,
+              uid:      Number(r.uid),
+              name:     r.name != null ? String(r.name) : null,
+              role:     r.role != null ? Number(r.role) : null,
+              cardno:   r.cardno   != null ? String(r.cardno)   : null,
+              password: r.password != null ? String(r.password) : null,
+              rawJson:  parseRawJson(r.rawJson),
+              syncedAt: new Date(),
+            },
+            // userId only written when inserting a new document — never overwrites existing emp-xxx links
+            $setOnInsert: { userId: machineUserId },
+          },
+          upsert: true,
+        },
+      };
+    });
     const res = await MachineUser.bulkWrite(ops, { ordered: false });
     u += res.upsertedCount; m += res.modifiedCount;
   }
@@ -328,10 +352,11 @@ async function pushDeviceConfig(bridgeId, socket) {
 // Done here because Bridge/Device/bridgeMap/socketSend are defined above
 subService.init({ Bridge, Device, bridgeMap, socketSend });
 initOrgRoutes({ Bridge, Device, MachineUser, bridgeMap, socketSend, pushDeviceConfig, queueTunnel });
-routeAdminOrgs.init({ Bridge, Device, MachineUser, AttendanceLog, bridgeMap });
+routeAdminOrgs.init({ Bridge, Device, MachineUser, AttendanceLog, SyncState, bridgeMap, pushDeviceConfig, queueTunnel, socketSend });
 routeDepartments.init({ Organization: require('./models/Organization') });
 routeEmployees.init({ MachineUser, AttendanceLog, Organization: require('./models/Organization') });
 routeAttendance.init({ AttendanceLog, Device, MachineUser, bridgeMap });
+routeAdminUsers.init({ bridgeMap });
 
 // ── SUBSCRIPTION EXPIRY CRON (runs every hour) ────────────────────────────────
 setInterval(async () => {

@@ -9,6 +9,10 @@ const { adminApiLimiter, strictAdminLimiter } = require('../auth/rateLimits');
 
 router.use(requireAuth, requireRole('admin'), adminApiLimiter);
 
+// Runtime bridgeMap injected from app.js (needed for live online count)
+let _bridgeMap = null;
+function init({ bridgeMap }) { _bridgeMap = bridgeMap; }
+
 const SAFE = '-passwordHash -totpSecret -totpBackupCodes -mobileOtp -emailOtp';
 
 function safeUser(u) {
@@ -244,7 +248,7 @@ router.get('/stats', requireAuth, requireRole('admin','support'), async (req, re
       .select('name email mobile role createdAt photoUrl').lean();
 
     // Infrastructure — count from Bridge model
-    let totalBridges = 0, totalDevices = 0, enabledDevices = 0;
+    let totalBridges = 0, onlineBridges = 0, totalDevices = 0, enabledDevices = 0;
     try {
       const Bridge = mongoose.model('Bridge');
       const Device = mongoose.model('Device');
@@ -253,6 +257,12 @@ router.get('/stats', requireAuth, requireRole('admin','support'), async (req, re
         Device.countDocuments({}),
         Device.countDocuments({ enabled: true }),
       ]);
+      // Count online bridges from the live bridgeMap (WebSocket connections)
+      if (_bridgeMap) {
+        for (const [, entry] of _bridgeMap) {
+          if (entry?.socket?.readyState === 1) onlineBridges++;
+        }
+      }
     } catch {}
 
     // Top orgs by device count
@@ -294,8 +304,8 @@ router.get('/stats', requireAuth, requireRole('admin','support'), async (req, re
       infrastructure: {
         bridges: {
           total:   totalBridges,
-          online:  0, // updated by bridgeMap at runtime - not available in route context
-          offline: totalBridges,
+          online:  onlineBridges,
+          offline: totalBridges - onlineBridges,
         },
         devices: {
           total:    totalDevices,
@@ -333,6 +343,7 @@ router.get('/stats', requireAuth, requireRole('admin','support'), async (req, re
 
 
 module.exports = router;
+module.exports.init = init;
 
 // ── ADMIN NOTIFICATIONS ───────────────────────────────────────────────────────
 router.get('/notifications', requireAuth, requireRole('admin', 'support'), async (req, res) => {

@@ -166,6 +166,62 @@ function computeOT(shift, workedMinutes) {
   return ot.maxMinutesPerDay ? Math.min(excess, ot.maxMinutesPerDay) : excess;
 }
 
+// ── Shared UID→empId helpers (used by today / range / payroll / logs) ─────────
+
+/** Build { "deviceId:uid": empId, uid: empId } lookup from a MachineUser list. */
+function buildUidMap(muList) {
+  const map = {};
+  muList.forEach(mu => {
+    map[`${mu.deviceId}:${mu.uid}`] = mu.userId;
+    map[String(mu.uid)]             = mu.userId;
+  });
+  return map;
+}
+
+/** Resolve a raw punch log to an employeeId using a uidMap. */
+function resolveEmpId(log, uidMap) {
+  const key = log.deviceId ? `${log.deviceId}:${log.userId}` : log.userId;
+  return uidMap[key] || uidMap[log.userId] || null;
+}
+
+/** Group punch logs into { empId: { 'YYYY-MM-DD': [logs] } }. */
+function groupByEmpDate(logs, uidMap) {
+  const byEmpDate = {};
+  logs.forEach(log => {
+    const eid = resolveEmpId(log, uidMap);
+    if (!eid) return;
+    const date = localDateStr(log.timestamp);
+    if (!byEmpDate[eid])       byEmpDate[eid]       = {};
+    if (!byEmpDate[eid][date]) byEmpDate[eid][date] = [];
+    byEmpDate[eid][date].push(log);
+  });
+  return byEmpDate;
+}
+
+// ── Leave balance helpers ─────────────────────────────────────────────────────
+
+const LEAVE_STATUSES = new Set(['on-leave','paid-leave','sick-leave','comp-off']);
+
+/** Map a leave status + optional leaveType to the correct leaveBalance key. */
+const STATUS_LEAVE_KEY = { 'sick-leave':'sick', 'paid-leave':'earned', 'comp-off':'other', 'on-leave':'casual' };
+function leaveKey(status, leaveType) {
+  const valid = ['casual','sick','earned','maternity','paternity','other'];
+  if (leaveType && valid.includes(leaveType)) return leaveType;
+  return STATUS_LEAVE_KEY[status] || null;
+}
+
+/**
+ * Adjust an employee's leaveBalance.
+ * delta = -1 to deduct (marking leave), +1 to restore (removing leave).
+ * Clamps balance at 0 so it never goes negative from restores that exceed current value.
+ */
+async function adjustLeaveBalance(employeeId, status, leaveType, leaveHalf, delta) {
+  const key = leaveKey(status, leaveType);
+  if (!key) return;
+  const amount = (leaveHalf === 'first' || leaveHalf === 'second') ? 0.5 * delta : 1 * delta;
+  await Employee.updateOne({ employeeId }, { $inc: { [`leaveBalance.${key}`]: amount } });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  TODAY
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -198,18 +254,12 @@ router.get('/organizations/:orgId/attendance/today', requireAuth, generalApiLimi
     const muList = _MachineUser
       ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId').lean()
       : [];
-    const deviceUidToEmpId = {}; // key: "deviceId:uid" -> employeeId
-    muList.forEach(mu => {
-      deviceUidToEmpId[`${mu.deviceId}:${mu.uid}`] = mu.userId;
-      deviceUidToEmpId[mu.uid] = mu.userId; // also by uid alone for logs without deviceId
-    });
+    const deviceUidToEmpId = buildUidMap(muList);
 
     // Group logs by employeeId using MachineUser mapping
     const byEmp = {};
     logs.forEach(log => {
-      // Try deviceId:uid combo first, then uid alone
-      const key = log.deviceId ? `${log.deviceId}:${log.userId}` : log.userId;
-      const empId = deviceUidToEmpId[key] || deviceUidToEmpId[log.userId];
+      const empId = resolveEmpId(log, deviceUidToEmpId);
       if (!empId) return; // unlinked machine user — skip
       if (!byEmp[empId]) byEmp[empId] = [];
       byEmp[empId].push(log);
@@ -240,16 +290,7 @@ router.get('/organizations/:orgId/attendance/today', requireAuth, generalApiLimi
       ? (_AttendanceLog ? await _AttendanceLog.find({ bridgeId: org.bridgeId, timestamp: { $gte: monthStart, $lt: todayStart } }).sort({ timestamp:1 }).lean() : [])
       : [];
     // Group month logs by empId+date
-    const monthByEmpDate = {};
-    monthLogsRaw.forEach(log => {
-      const key  = log.deviceId ? `${log.deviceId}:${log.userId}` : log.userId;
-      const eid  = deviceUidToEmpId[key] || deviceUidToEmpId[log.userId];
-      if (!eid) return;
-      const date = localDateStr(log.timestamp);
-      if (!monthByEmpDate[eid]) monthByEmpDate[eid] = {};
-      if (!monthByEmpDate[eid][date]) monthByEmpDate[eid][date] = [];
-      monthByEmpDate[eid][date].push(log);
-    });
+    const monthByEmpDate = groupByEmpDate(monthLogsRaw, deviceUidToEmpId);
     // Fetch manual overrides for this month (prior to today)
     const monthManuals = await ManualAtt.find({ orgId: req.params.orgId, date: { $gte: monthStartStr, $lt: todayStr } }).lean();
     const monthManualByEmpDate = {};
@@ -402,23 +443,10 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
     const muList2 = _MachineUser
       ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId').lean()
       : [];
-    const duidToEmpId = {};
-    muList2.forEach(mu => {
-      duidToEmpId[`${mu.deviceId}:${mu.uid}`] = mu.userId;
-      duidToEmpId[mu.uid] = mu.userId;
-    });
+    const duidToEmpId = buildUidMap(muList2);
 
     // Group logs by employeeId + date using MachineUser mapping
-    const byEmpDate = {}; // { empId: { 'YYYY-MM-DD': [logs] } }
-    logs.forEach(log => {
-      const key  = log.deviceId ? `${log.deviceId}:${log.userId}` : log.userId;
-      const eid  = duidToEmpId[key] || duidToEmpId[log.userId];
-      if (!eid) return; // unlinked — skip
-      const date = localDateStr(log.timestamp);
-      if (!byEmpDate[eid])       byEmpDate[eid]       = {};
-      if (!byEmpDate[eid][date]) byEmpDate[eid][date] = [];
-      byEmpDate[eid][date].push(log);
-    });
+    const byEmpDate = groupByEmpDate(logs, duidToEmpId);
 
     // Manual overrides in range
     const manuals = await ManualAtt.find({ orgId: req.params.orgId, date: { $gte: startDate, $lte: endDate } }).lean();
@@ -452,16 +480,7 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
     if (startDate > monthFirstDay && org.bridgeId && _AttendanceLog) {
       const preStart = new Date(`${monthFirstDay}T00:00:00`);
       const preLogs  = await _AttendanceLog.find({ bridgeId: org.bridgeId, timestamp: { $gte: preStart, $lt: start } }).sort({ timestamp:1 }).lean();
-      const preByEmpDate = {};
-      preLogs.forEach(log => {
-        const key = log.deviceId ? `${log.deviceId}:${log.userId}` : log.userId;
-        const eid = duidToEmpId[key] || duidToEmpId[log.userId];
-        if (!eid) return;
-        const d = localDateStr(log.timestamp);
-        if (!preByEmpDate[eid]) preByEmpDate[eid] = {};
-        if (!preByEmpDate[eid][d]) preByEmpDate[eid][d] = [];
-        preByEmpDate[eid][d].push(log);
-      });
+      const preByEmpDate = groupByEmpDate(preLogs, duidToEmpId);
       const preManuals = await ManualAtt.find({ orgId: req.params.orgId, date: { $gte: monthFirstDay, $lt: startDate } }).lean();
       const preManByEmpDate = {};
       preManuals.forEach(m => {
@@ -638,22 +657,8 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
     const muList3 = _MachineUser
       ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId').lean()
       : [];
-    const duidMap3 = {};
-    muList3.forEach(mu => {
-      duidMap3[`${mu.deviceId}:${mu.uid}`] = mu.userId;
-      duidMap3[mu.uid] = mu.userId;
-    });
-
-    const byEmpDate3 = {};
-    logs.forEach(log => {
-      const key = log.deviceId ? `${log.deviceId}:${log.userId}` : log.userId;
-      const eid = duidMap3[key] || duidMap3[log.userId];
-      if (!eid) return;
-      const date = localDateStr(log.timestamp);
-      if (!byEmpDate3[eid])       byEmpDate3[eid]       = {};
-      if (!byEmpDate3[eid][date]) byEmpDate3[eid][date] = [];
-      byEmpDate3[eid][date].push(log);
-    });
+    const duidMap3 = buildUidMap(muList3);
+    const byEmpDate3 = groupByEmpDate(logs, duidMap3);
 
     const manuals3 = await ManualAtt.find({ orgId: req.params.orgId, date: { $gte: startDate, $lte: endDate } }).lean();
     const manualByEmpDate3 = {};
@@ -673,16 +678,7 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
     if (startDate > payMonthFirst && org.bridgeId && _AttendanceLog) {
       const preStart4 = new Date(`${payMonthFirst}T00:00:00`);
       const preLogs4  = await _AttendanceLog.find({ bridgeId: org.bridgeId, timestamp: { $gte: preStart4, $lt: start } }).sort({ timestamp:1 }).lean();
-      const preByEmpDate4 = {};
-      preLogs4.forEach(log => {
-        const key = log.deviceId ? `${log.deviceId}:${log.userId}` : log.userId;
-        const eid = duidMap3[key] || duidMap3[log.userId];
-        if (!eid) return;
-        const d = localDateStr(log.timestamp);
-        if (!preByEmpDate4[eid]) preByEmpDate4[eid] = {};
-        if (!preByEmpDate4[eid][d]) preByEmpDate4[eid][d] = [];
-        preByEmpDate4[eid][d].push(log);
-      });
+      const preByEmpDate4 = groupByEmpDate(preLogs4, duidMap3);
       const preManuals4 = await ManualAtt.find({ orgId: req.params.orgId, date: { $gte: payMonthFirst, $lt: startDate } }).lean();
       const preManByEmpDate4 = {};
       preManuals4.forEach(m => {
@@ -899,11 +895,7 @@ router.get('/organizations/:orgId/attendance/logs', requireAuth, generalApiLimit
     const muBridge = _MachineUser
       ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId').lean()
       : [];
-    const logUidToEmpId = {};
-    muBridge.forEach(mu => {
-      logUidToEmpId[`${mu.deviceId}:${mu.uid}`] = mu.userId;
-      logUidToEmpId[String(mu.uid)] = mu.userId;
-    });
+    const logUidToEmpId = buildUidMap(muBridge);
 
     // Resolve device UIDs to employeeIds, then fetch employee info
     const resolvedEmpIds = [...new Set(logs.map(l => {
@@ -918,8 +910,7 @@ router.get('/organizations/:orgId/attendance/logs', requireAuth, generalApiLimit
     emps.forEach(e => { empMap[e.employeeId] = e; });
 
     const enriched = logs.map(l => {
-      const key   = l.deviceId ? `${l.deviceId}:${l.userId}` : l.userId;
-      const empId = logUidToEmpId[key] || logUidToEmpId[l.userId];
+      const empId = resolveEmpId(l, logUidToEmpId);
       const emp   = empId ? empMap[empId] : null;
       return {
         ...l,
@@ -975,14 +966,35 @@ router.post('/organizations/:orgId/attendance/manual', requireAuth, generalApiLi
     const org = await getOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
     if (!org) return res.status(404).json({ error: 'Organization not found' });
 
-    const { employeeId, date, status, inTime, outTime, workedMinutes, leaveType, leaveHalf, reason } = req.body;
+    let { employeeId, date, status, inTime, outTime, workedMinutes, leaveType, leaveHalf, reason } = req.body;
     if (!employeeId || !date) return res.status(400).json({ error: 'employeeId and date required' });
+
+    // Auto-calculate workedMinutes from inTime + outTime when not explicitly provided
+    if (inTime && outTime && workedMinutes == null) {
+      const [ih, im] = inTime.split(':').map(Number);
+      const [oh, om] = outTime.split(':').map(Number);
+      let mins = (oh * 60 + om) - (ih * 60 + im);
+      if (mins < 0) mins += 1440; // crosses midnight
+      workedMinutes = mins;
+    }
+
+    // Restore leave balance if this employee+date already has a leave override
+    const existing = await ManualAtt.findOne({ orgId: req.params.orgId, employeeId, date }).lean();
+    if (existing && LEAVE_STATUSES.has(existing.status)) {
+      await adjustLeaveBalance(employeeId, existing.status, existing.leaveType, existing.leaveHalf, +1);
+    }
 
     const record = await ManualAtt.findOneAndUpdate(
       { orgId: req.params.orgId, employeeId, date },
-      { $set: { manualId: `man-${uuidv4().split('-')[0]}`, orgId: req.params.orgId, employeeId, date, status: status||'present', inTime: inTime||null, outTime: outTime||null, workedMinutes: workedMinutes ? Number(workedMinutes) : null, leaveType: leaveType||null, leaveHalf: leaveHalf||null, reason: reason||'', approvedBy: req.authUser.userId } },
+      { $set: { manualId: `man-${uuidv4().split('-')[0]}`, orgId: req.params.orgId, employeeId, date, status: status||'present', inTime: inTime||null, outTime: outTime||null, workedMinutes: workedMinutes != null ? Number(workedMinutes) : null, leaveType: leaveType||null, leaveHalf: leaveHalf||null, reason: reason||'', approvedBy: req.authUser.userId } },
       { upsert: true, new: true }
     );
+
+    // Deduct leave balance for new leave status
+    if (LEAVE_STATUSES.has(status)) {
+      await adjustLeaveBalance(employeeId, status, leaveType, leaveHalf, -1);
+    }
+
     res.status(201).json({ status:'success', data: record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -992,21 +1004,47 @@ router.patch('/organizations/:orgId/attendance/manual/:manualId', requireAuth, g
     const org = await getOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
     if (!org) return res.status(404).json({ error: 'Organization not found' });
 
-    const { status, inTime, outTime, workedMinutes, leaveType, leaveHalf, reason } = req.body;
+    const existing = await ManualAtt.findOne({ manualId: req.params.manualId, orgId: req.params.orgId }).lean();
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+
+    let { status, inTime, outTime, workedMinutes, leaveType, leaveHalf, reason } = req.body;
+
     const update = {};
     if (status        !== undefined) update.status        = status;
     if (inTime        !== undefined) update.inTime        = inTime;
     if (outTime       !== undefined) update.outTime       = outTime;
-    if (workedMinutes !== undefined) update.workedMinutes = workedMinutes ? Number(workedMinutes) : null;
     if (leaveType     !== undefined) update.leaveType     = leaveType;
     if (leaveHalf     !== undefined) update.leaveHalf     = leaveHalf;
     if (reason        !== undefined) update.reason        = reason;
+
+    // Auto-calculate workedMinutes from resolved inTime/outTime
+    const resolvedIn  = inTime  !== undefined ? inTime  : existing.inTime;
+    const resolvedOut = outTime !== undefined ? outTime : existing.outTime;
+    if (workedMinutes !== undefined) {
+      update.workedMinutes = workedMinutes ? Number(workedMinutes) : null;
+    } else if (resolvedIn && resolvedOut) {
+      const [ih, im] = resolvedIn.split(':').map(Number);
+      const [oh, om] = resolvedOut.split(':').map(Number);
+      let mins = (oh * 60 + om) - (ih * 60 + im);
+      if (mins < 0) mins += 1440;
+      update.workedMinutes = mins;
+    }
+
+    // Adjust leave balance: restore old, deduct new
+    if (LEAVE_STATUSES.has(existing.status)) {
+      await adjustLeaveBalance(existing.employeeId, existing.status, existing.leaveType, existing.leaveHalf, +1);
+    }
+    const newStatus    = status    !== undefined ? status    : existing.status;
+    const newLeaveType = leaveType !== undefined ? leaveType : existing.leaveType;
+    const newLeaveHalf = leaveHalf !== undefined ? leaveHalf : existing.leaveHalf;
+    if (LEAVE_STATUSES.has(newStatus)) {
+      await adjustLeaveBalance(existing.employeeId, newStatus, newLeaveType, newLeaveHalf, -1);
+    }
 
     const record = await ManualAtt.findOneAndUpdate(
       { manualId: req.params.manualId, orgId: req.params.orgId },
       { $set: update }, { new: true }
     );
-    if (!record) return res.status(404).json({ error: 'Not found' });
     res.json({ status:'success', data: record });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -1015,6 +1053,13 @@ router.delete('/organizations/:orgId/attendance/manual/:manualId', requireAuth, 
   try {
     const org = await getOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
     if (!org) return res.status(404).json({ error: 'Organization not found' });
+
+    // Restore leave balance before deleting
+    const existing = await ManualAtt.findOne({ manualId: req.params.manualId, orgId: req.params.orgId }).lean();
+    if (existing && LEAVE_STATUSES.has(existing.status)) {
+      await adjustLeaveBalance(existing.employeeId, existing.status, existing.leaveType, existing.leaveHalf, +1);
+    }
+
     await ManualAtt.deleteOne({ manualId: req.params.manualId, orgId: req.params.orgId });
     res.json({ status:'success' });
   } catch(e) { res.status(500).json({ error: e.message }); }

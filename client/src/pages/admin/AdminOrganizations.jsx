@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronUp, RotateCcw, Zap, ShieldOff, ShieldCheck,
   Trash2, Edit3, BarChart2, Unlink, Link2, Users, Fingerprint,
   Activity, AlertTriangle, CheckCircle2, XCircle, Wifi, WifiOff,
-  Settings, MoreVertical, Calendar, Copy, Key, Globe, Shield, Plus
+  Settings, MoreVertical, Calendar, Copy, Key, Globe, Shield, Plus, Clock, Volume2
 } from 'lucide-react'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -150,6 +150,7 @@ function EditOrgModal({ open, onClose, org, onSaved }) {
 function MachineUsersModal({ open, onClose, orgId }) {
   const [mus,     setMus]    = useState([])
   const [loading, setLoad]   = useState(false)
+  const [busy,    setBusy]   = useState(false)
   const [filter,  setFilter] = useState('')
   const { toast } = useToast()
 
@@ -162,58 +163,415 @@ function MachineUsersModal({ open, onClose, orgId }) {
     finally { setLoad(false) }
   }
 
-  useEffect(() => { if (open && orgId) load() }, [open, orgId])
+  useEffect(() => { if (open && orgId) { setFilter(''); load() } }, [open, orgId])
 
   async function unlink(mu) {
+    setBusy(true)
     try {
       await api.patch(`/admin/orgs/${orgId}/machine-users/${mu._id}/unlink`)
-      toast('Unlinked', 'success'); load()
+      toast(`UID ${mu.uid} unlinked`, 'success'); load()
     } catch(e) { toast(e.message, 'error') }
+    finally { setBusy(false) }
   }
 
   async function cleanUnlinked() {
     if (!window.confirm('Delete all unlinked machine users for this org?')) return
+    setBusy(true)
     try {
       const r = await api.delete(`/admin/orgs/${orgId}/machine-users/unlinked`)
       toast(`Deleted ${r.deleted} unlinked records`, 'success'); load()
     } catch(e) { toast(e.message, 'error') }
+    finally { setBusy(false) }
   }
 
-  const filtered = mus.filter(m => !filter || (m.name||m.uid?.toString()||'').toLowerCase().includes(filter.toLowerCase()))
-  const linked   = mus.filter(m => m.employee).length
+  const q        = filter.toLowerCase()
+  const matches  = m => !q || (m.name||'').toLowerCase().includes(q) || String(m.uid).includes(q) || (m.deviceId||'').toLowerCase().includes(q)
+  const linked   = mus.filter(m => m.employee && matches(m))
+  const unlinked = mus.filter(m => !m.employee && matches(m))
 
   return (
     <Modal open={open} onClose={onClose} title="Machine Users" size="lg">
-      <div className="flex items-center gap-2 mb-3">
-        <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search by name or UID…" className="field-input flex-1 text-xs"/>
-        <span style={{ fontSize:'0.75rem', color:'var(--text-muted)', whiteSpace:'nowrap', fontFamily:'monospace' }}>{linked} linked / {mus.length} total</span>
-        <Button variant="danger" size="sm" onClick={cleanUnlinked}>Clean Unlinked</Button>
+
+      {/* ── Search bar + summary ── */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16 }}>
+        <input value={filter} onChange={e => setFilter(e.target.value)}
+          placeholder="Search by name, UID or device…" className="field-input"
+          style={{ flex:1, fontSize:'0.8125rem' }}/>
+        <span style={{ fontSize:'0.72rem', color:'var(--text-muted)', whiteSpace:'nowrap', fontFamily:'monospace',
+          background:'var(--bg-surface2)', border:'1px solid var(--border)', borderRadius:8, padding:'4px 10px' }}>
+          {mus.filter(m=>m.employee).length} linked / {mus.length} total
+        </span>
+        {unlinked.length > 0 && (
+          <Button variant="secondary" size="sm" onClick={cleanUnlinked} loading={busy}>
+            <Trash2 size={12}/> Clean Unlinked
+          </Button>
+        )}
       </div>
-      <div className=".5" style={{ maxHeight:'50vh', overflowY:'auto' }}>
-        {loading ? [1,2,3,4].map(i=><div key={i} className="h-12 shimmer rounded-lg"/>) : filtered.map(m => (
-          <div key={m._id} style={{ display:'flex', alignItems:'center', gap:10, padding:'0.625rem 0.875rem', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:8 }}>
-            <div style={{ width:32, height:32, borderRadius:'50%', background: m.employee ? 'rgba(52,211,153,.1)' : 'var(--bg-surface2)', border:`1px solid ${m.employee ? 'rgba(52,211,153,.2)' : 'var(--border)'}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              <Fingerprint size={14} style={{ color: m.employee ? '#34d399' : '#4a4a68' }}/>
-            </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <p style={{ fontSize:'0.9375rem', fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name || `UID ${m.uid}`}</p>
-              <p style={{ fontSize:'0.8125rem', fontFamily:'monospace', color:'var(--text-muted)' }}>UID:{m.uid} · {m.deviceId} · {m.role}</p>
-            </div>
-            <div style={{ flexShrink:0, textAlign:'right' }}>
-              {m.employee
-                ? <p style={{ fontSize:'0.75rem', fontWeight:700, color:'#34d399' }}>{m.employee.displayName || `${m.employee.firstName} ${m.employee.lastName||''}`}</p>
-                : <p style={{ fontSize:'0.75rem', fontWeight:600, color:'#f87171' }}>Not Linked</p>}
-              <p style={{ fontSize:'0.8125rem', color:'var(--text-dim)', fontFamily:'monospace' }}>{m.employee?.employeeCode || '—'}</p>
-            </div>
-            {m.userId && (
-              <button onClick={() => unlink(m)} title="Unlink" style={{ padding:6, borderRadius:6, background:'transparent', border:'none', cursor:'pointer', color:'var(--text-muted)' }}
-                onMouseEnter={e=>e.target.style.color='#f87171'} onMouseLeave={e=>e.target.style.color='var(--text-muted)'}>
-                <Unlink size={13}/>
-              </button>
+
+      {loading ? (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {[1,2,3,4].map(i => <div key={i} style={{ height:52, borderRadius:10, background:'var(--bg-surface2)', animation:'shimmer 1.5s infinite' }}/>)}
+        </div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:20, maxHeight:'60vh', overflowY:'auto', paddingRight:2 }}>
+
+          {/* ── Linked section ── */}
+          <div>
+            <p style={{ fontSize:'0.72rem', fontFamily:'monospace', fontWeight:700, textTransform:'uppercase',
+              letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:8 }}>
+              Linked to Employees · {linked.length}
+            </p>
+            {linked.length === 0 ? (
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'24px 0',
+                border:'1px dashed var(--border)', borderRadius:12, gap:6 }}>
+                <Fingerprint size={24} style={{ color:'var(--text-dim)', opacity:.4 }}/>
+                <p style={{ fontSize:'0.8125rem', color:'var(--text-muted)' }}>No linked machine users{q ? ' match filter' : ''}</p>
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {linked.map(m => (
+                  <div key={m._id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px',
+                    borderRadius:12, background:'rgba(52,211,153,.04)', border:'1px solid rgba(52,211,153,.18)' }}>
+                    {/* Icon */}
+                    <div style={{ width:34, height:34, borderRadius:9, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
+                      background:'rgba(52,211,153,.1)', border:'1px solid rgba(52,211,153,.2)' }}>
+                      <Fingerprint size={15} style={{ color:'#34d399' }}/>
+                    </div>
+                    {/* Machine info */}
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <p style={{ fontSize:'0.875rem', fontWeight:600, color:'var(--text-primary)', fontFamily:'monospace',
+                        overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {m.name || `UID ${m.uid}`}
+                      </p>
+                      <p style={{ fontSize:'0.72rem', fontFamily:'monospace', color:'var(--text-muted)' }}>
+                        UID: {m.uid} · {m.deviceId}{m.cardno ? ` · Card: ${m.cardno}` : ''}
+                      </p>
+                    </div>
+                    {/* Employee badge */}
+                    <div style={{ flexShrink:0, textAlign:'right' }}>
+                      <p style={{ fontSize:'0.8125rem', fontWeight:700, color:'#34d399' }}>
+                        {m.employee.displayName || `${m.employee.firstName} ${m.employee.lastName||''}`.trim()}
+                      </p>
+                      <p style={{ fontSize:'0.72rem', fontFamily:'monospace', color:'var(--text-dim)' }}>
+                        {m.employee.employeeCode || '—'}
+                      </p>
+                    </div>
+                    {/* Unlink */}
+                    <button onClick={() => unlink(m)} disabled={busy} title="Unlink"
+                      style={{ padding:7, borderRadius:8, background:'transparent', border:'1px solid transparent',
+                        cursor:'pointer', color:'var(--text-muted)', transition:'all .15s', flexShrink:0 }}
+                      onMouseEnter={e => { e.currentTarget.style.color='#f87171'; e.currentTarget.style.borderColor='rgba(248,113,113,.25)'; e.currentTarget.style.background='rgba(248,113,113,.08)' }}
+                      onMouseLeave={e => { e.currentTarget.style.color='var(--text-muted)'; e.currentTarget.style.borderColor='transparent'; e.currentTarget.style.background='transparent' }}>
+                      <Unlink size={13}/>
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        ))}
-        {!loading && filtered.length === 0 && <p style={{ textAlign:'center', color:'var(--text-dim)', fontSize:'0.875rem', padding:'2rem' }}>No machine users found</p>}
+
+          {/* ── Unlinked section ── */}
+          <div>
+            <p style={{ fontSize:'0.72rem', fontFamily:'monospace', fontWeight:700, textTransform:'uppercase',
+              letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:8 }}>
+              Not Linked · {unlinked.length}
+            </p>
+            {unlinked.length === 0 ? (
+              <p style={{ fontSize:'0.75rem', color:'var(--text-dim)', fontFamily:'monospace', textAlign:'center', padding:'16px 0' }}>
+                {q ? 'No unlinked machine users match filter' : 'All machine users are linked ✓'}
+              </p>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {unlinked.map(m => (
+                  <div key={m._id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px',
+                    borderRadius:12, background:'var(--bg-surface2)', border:'1px solid var(--border)' }}>
+                    <div style={{ width:34, height:34, borderRadius:9, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center',
+                      background:'var(--bg-elevated)', border:'1px solid var(--border)' }}>
+                      <Fingerprint size={15} style={{ color:'var(--text-dim)' }}/>
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <p style={{ fontSize:'0.875rem', fontWeight:600, color:'var(--text-secondary)', fontFamily:'monospace',
+                        overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {m.name || `UID ${m.uid}`}
+                      </p>
+                      <p style={{ fontSize:'0.72rem', fontFamily:'monospace', color:'var(--text-dim)' }}>
+                        UID: {m.uid} · {m.deviceId}{m.cardno ? ` · Card: ${m.cardno}` : ''}
+                      </p>
+                    </div>
+                    <span style={{ fontSize:'0.72rem', fontWeight:700, color:'#f87171', fontFamily:'monospace',
+                      background:'rgba(248,113,113,.08)', border:'1px solid rgba(248,113,113,.18)',
+                      borderRadius:6, padding:'2px 8px', flexShrink:0 }}>
+                      Not Linked
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ── Admin Device Control Modal ────────────────────────────────────────────────
+function AdminDeviceControlModal({ open, onClose, dev, orgId, onRefresh }) {
+  const { toast } = useToast()
+  const [info,     setInfo]    = useState(null)
+  const [time,     setTime]    = useState(null)
+  const [loadInfo, setLoadInfo]= useState(false)
+  const [busy,     setBusy]    = useState('')
+
+  async function fetchInfo() {
+    setLoadInfo(true)
+    try {
+      const r = await api.get(`/admin/orgs/${orgId}/devices/${dev.deviceId}/info`)
+      setInfo(r.data); setTime(null)
+      // separately fetch time
+      api.get(`/admin/orgs/${orgId}/devices/${dev.deviceId}/time`)
+        .then(r => setTime(r.data?.deviceTime)).catch(() => setTime('—'))
+    } catch(e) { toast(e.message, 'error') }
+    finally { setLoadInfo(false) }
+  }
+
+  async function syncTime() {
+    setBusy('synctime')
+    try {
+      await api.put(`/admin/orgs/${orgId}/devices/${dev.deviceId}/time`, { time: new Date().toISOString() })
+      toast('Device time synced', 'success')
+      api.get(`/admin/orgs/${orgId}/devices/${dev.deviceId}/time`).then(r => setTime(r.data?.deviceTime)).catch(() => {})
+    } catch(e) { toast(e.message, 'error') }
+    finally { setBusy('') }
+  }
+
+  async function voiceTest() {
+    setBusy('voice')
+    try { await api.post(`/admin/orgs/${orgId}/devices/${dev.deviceId}/voice-test`); toast('Voice test triggered', 'success') }
+    catch(e) { toast(e.message, 'error') }
+    finally { setBusy('') }
+  }
+
+  async function triggerSync() {
+    setBusy('sync')
+    try { await api.post(`/admin/orgs/${orgId}/devices/${dev.deviceId}/sync`); toast('Sync triggered', 'success') }
+    catch(e) { toast(e.message, 'error') }
+    finally { setBusy('') }
+  }
+
+  async function connectDev() {
+    setBusy('connect')
+    try { await api.post(`/admin/orgs/${orgId}/devices/${dev.deviceId}/connect`); toast('Connect signal sent', 'success'); onRefresh?.() }
+    catch(e) { toast(e.message, 'error') }
+    finally { setBusy('') }
+  }
+
+  async function disconnectDev() {
+    setBusy('disconnect')
+    try { await api.post(`/admin/orgs/${orgId}/devices/${dev.deviceId}/disconnect`); toast('Disconnect signal sent', 'success'); onRefresh?.() }
+    catch(e) { toast(e.message, 'error') }
+    finally { setBusy('') }
+  }
+
+  useEffect(() => { if (open) fetchInfo() }, [open])
+
+  const bridgeOnline = !!dev.bridgeOnline
+
+  return (
+    <Modal open={open} onClose={onClose} title={dev.name} description={`${dev.ip}:${dev.port} · ${dev.deviceId}`} size="lg">
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1.2fr', gap:20 }}>
+
+        {/* Left: device card */}
+        <div>
+          {/* Status indicator */}
+          <div style={{ display:'flex', flexDirection:'column', gap:6, padding:'12px 14px', borderRadius:12,
+            background: bridgeOnline ? 'rgba(52,211,153,.04)' : 'var(--bg-surface2)',
+            border:`1px solid ${bridgeOnline ? 'rgba(52,211,153,.2)' : 'var(--border)'}`, marginBottom:12 }}>
+            {[
+              { l:'IP Address', v:`${dev.ip}` },
+              { l:'Port',       v:`${dev.port || 4370}` },
+              { l:'Device ID',  v:dev.deviceId },
+              { l:'Model',      v:dev.model || '—' },
+              { l:'Location',   v:dev.location || '—' },
+              { l:'Status',     v: bridgeOnline ? (info?.deviceStatus || 'checking…') : 'Bridge Offline',
+                color: bridgeOnline ? (info?.deviceStatus === 'online' ? '#34d399' : '#f87171') : '#fb923c' },
+              { l:'Device Time', v: time || (bridgeOnline ? 'loading…' : '—') },
+            ].map(r => (
+              <div key={r.l} style={{ display:'flex', justifyContent:'space-between', gap:8, fontSize:'0.78rem', fontFamily:'monospace' }}>
+                <span style={{ color:'var(--text-dim)', flexShrink:0 }}>{r.l}</span>
+                <span style={{ color: r.color || 'var(--text-secondary)', textAlign:'right', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.v}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Sync stats from DB */}
+          {info && (
+            <div style={{ display:'flex', flexDirection:'column', gap:4, padding:'10px 12px', borderRadius:10,
+              background:'var(--bg-input)', border:'1px solid var(--border)', fontSize:'0.75rem', fontFamily:'monospace' }}>
+              <p style={{ fontSize:'0.625rem', fontWeight:800, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-dim)', marginBottom:4 }}>Sync Stats</p>
+              <div style={{ display:'flex', justifyContent:'space-between' }}>
+                <span style={{ color:'var(--text-muted)' }}>Punches synced</span>
+                <span style={{ color:'#58a6ff' }}>{info.totalAttendanceSynced || 0}</span>
+              </div>
+              <div style={{ display:'flex', justifyContent:'space-between' }}>
+                <span style={{ color:'var(--text-muted)' }}>Users synced</span>
+                <span style={{ color:'#c084fc' }}>{info.totalUsersSynced || 0}</span>
+              </div>
+              {info.lastAttendanceSync && (
+                <div style={{ display:'flex', justifyContent:'space-between' }}>
+                  <span style={{ color:'var(--text-muted)' }}>Last punch sync</span>
+                  <span style={{ color:'var(--text-dim)' }}>{new Date(info.lastAttendanceSync).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' })}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right: hardware info + actions */}
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          {/* Hardware info (from tunnel) */}
+          {loadInfo ? (
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>{[1,2,3].map(i=><div key={i} className="h-8 shimmer rounded-md"/>)}</div>
+          ) : info?.hw ? (
+            <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(250,204,21,.04)', border:'1px solid rgba(250,204,21,.15)' }}>
+              <p style={{ fontSize:'0.625rem', fontWeight:800, textTransform:'uppercase', letterSpacing:'0.1em', color:'#facc1580', marginBottom:8 }}>Hardware Info</p>
+              <div style={{ display:'flex', flexDirection:'column', gap:5, fontSize:'0.75rem', fontFamily:'monospace' }}>
+                {[
+                  { l:'Device Name', v:info.hw.name },
+                  { l:'Version',     v:info.hw.version },
+                  { l:'OS',          v:info.hw.os },
+                  { l:'Platform',    v:info.hw.platform },
+                  { l:'MAC',         v:info.hw.mac },
+                ].filter(r=>r.v).map(r=>(
+                  <div key={r.l} style={{ display:'flex', justifyContent:'space-between', gap:8 }}>
+                    <span style={{ color:'var(--text-dim)' }}>{r.l}</span>
+                    <span style={{ color:'#facc15' }}>{r.v}</span>
+                  </div>
+                ))}
+                {info.hw.stats && (
+                  <div style={{ paddingTop:8, borderTop:'1px solid rgba(250,204,21,.15)', display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, textAlign:'center' }}>
+                    {[{l:'Users',v:info.hw.stats?.UserCount},{l:'Logs',v:info.hw.stats?.AttLogCount},{l:'Admins',v:info.hw.stats?.AdminCount}]
+                      .filter(r=>r.v!==undefined).map(r=>(
+                      <div key={r.l}><p style={{ fontSize:'0.9rem', fontWeight:800, color:'#34d399' }}>{r.v}</p><p style={{ fontSize:'0.6rem', color:'var(--text-dim)' }}>{r.l}</p></div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : bridgeOnline ? (
+            <div style={{ padding:'12px', borderRadius:10, background:'rgba(251,146,60,.06)', border:'1px solid rgba(251,146,60,.2)', fontSize:'0.8rem', color:'#fb923c' }}>
+              ⚠ Device may not be connected to bridge
+            </div>
+          ) : null}
+
+          {/* Actions */}
+          <div>
+            <p style={{ fontSize:'0.625rem', fontWeight:800, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--text-dim)', marginBottom:8 }}>Actions</p>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+              <Button size="sm" variant="secondary" onClick={triggerSync} loading={busy==='sync'}>
+                <RefreshCw size={12}/> Sync Data
+              </Button>
+              <Button size="sm" variant="secondary" onClick={syncTime} loading={busy==='synctime'} disabled={!bridgeOnline}>
+                <Clock size={12}/> Sync Time
+              </Button>
+              <Button size="sm" variant="secondary" onClick={voiceTest} loading={busy==='voice'} disabled={!bridgeOnline}>
+                <Volume2 size={12}/> Voice Test
+              </Button>
+              <Button size="sm" variant="secondary" onClick={fetchInfo} loading={loadInfo}>
+                <BarChart2 size={12}/> Refresh Info
+              </Button>
+              {info?.deviceStatus === 'online' ? (
+                <Button size="sm" variant="secondary" onClick={disconnectDev} loading={busy==='disconnect'} disabled={!bridgeOnline}>
+                  <WifiOff size={12}/> Disconnect
+                </Button>
+              ) : (
+                <Button size="sm" variant="secondary" onClick={connectDev} loading={busy==='connect'} disabled={!bridgeOnline}>
+                  <Wifi size={12}/> Connect
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display:'flex', justifyContent:'flex-end', paddingTop:12, borderTop:'1px solid var(--border)' }}>
+        <Button variant="secondary" size="sm" onClick={onClose}>Close</Button>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Edit Device Modal ─────────────────────────────────────────────────────────
+function EditDeviceModal({ open, onClose, dev, orgId, onSaved }) {
+  const [form, setForm] = useState({})
+  const [busy, setBusy] = useState(false)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    if (open && dev) setForm({ name: dev.name||'', ip: dev.ip||'', port: dev.port||4370, model: dev.model||'', location: dev.location||'' })
+  }, [open, dev])
+
+  const sf = k => e => setForm(f => ({...f, [k]: e.target.value}))
+
+  async function save() {
+    if (!form.ip?.trim()) return toast('IP address is required', 'error')
+    setBusy(true)
+    try {
+      await api.patch(`/admin/orgs/${orgId}/devices/${dev.deviceId}`, { ...form, port: Number(form.port)||4370 })
+      toast('Device updated', 'success'); onSaved(); onClose()
+    } catch(e) { toast(e.message, 'error') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Edit Device" size="md">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2"><Input label="Device Name *" value={form.name||''} onChange={sf('name')} placeholder="Main Gate"/></div>
+        <Input label="IP Address *"  value={form.ip||''}       onChange={sf('ip')}       placeholder="192.168.1.201"/>
+        <Input label="Port"          value={form.port||''}     onChange={sf('port')}     placeholder="4370" type="number"/>
+        <Input label="Model"         value={form.model||''}    onChange={sf('model')}    placeholder="ZKTeco K40"/>
+        <Input label="Location"      value={form.location||''} onChange={sf('location')} placeholder="Ground Floor, Block A"/>
+      </div>
+      <div className="flex justify-end gap-2 pt-3" style={{ borderTop:'1px solid var(--border)' }}>
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button onClick={save} loading={busy}>Save Changes</Button>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Add Device Modal ──────────────────────────────────────────────────────────
+function AddDeviceModal({ open, onClose, orgId, onSaved }) {
+  const [form, setForm] = useState({ name:'', ip:'', port:4370, model:'', location:'' })
+  const [busy, setBusy] = useState(false)
+  const { toast } = useToast()
+
+  useEffect(() => { if (open) setForm({ name:'', ip:'', port:4370, model:'', location:'' }) }, [open])
+
+  const sf = k => e => setForm(f => ({...f, [k]: e.target.value}))
+
+  async function save() {
+    if (!form.ip?.trim()) return toast('IP address is required', 'error')
+    setBusy(true)
+    try {
+      await api.post(`/admin/orgs/${orgId}/devices`, { ...form, port: Number(form.port)||4370 })
+      toast('Device added', 'success'); onSaved(); onClose()
+    } catch(e) { toast(e.message, 'error') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Add Device" size="md">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2"><Input label="Device Name" value={form.name} onChange={sf('name')} placeholder="Main Gate"/></div>
+        <Input label="IP Address *" value={form.ip}       onChange={sf('ip')}       placeholder="192.168.1.201"/>
+        <Input label="Port"         value={form.port}     onChange={sf('port')}     placeholder="4370" type="number"/>
+        <Input label="Model"        value={form.model}    onChange={sf('model')}    placeholder="ZKTeco K40"/>
+        <Input label="Location"     value={form.location} onChange={sf('location')} placeholder="Ground Floor, Block A"/>
+      </div>
+      <div className="flex justify-end gap-2 pt-3" style={{ borderTop:'1px solid var(--border)' }}>
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button onClick={save} loading={busy}>Add Device</Button>
       </div>
     </Modal>
   )
@@ -222,18 +580,12 @@ function MachineUsersModal({ open, onClose, orgId }) {
 // ── Device Row ────────────────────────────────────────────────────────────────
 function DeviceRow({ dev, orgId, isAdmin, onRefresh }) {
   const { toast } = useToast()
-  const [busy, setBusy]         = useState(false)
-  const [info, setInfo]         = useState(null)
-  const [delConfirm, setDelConf]= useState(false)
+  const [busy,       setBusy]     = useState(false)
+  const [showCtrl,   setShowCtrl] = useState(false)
+  const [showEdit,   setShowEdit] = useState(false)
+  const [delConfirm, setDelConf]  = useState(false)
 
   async function act(fn) { setBusy(true); try { await fn() } catch(e) { toast(e.message,'error') } finally { setBusy(false) } }
-
-  async function loadInfo() {
-    act(async () => {
-      const r = await api.get(`/admin/orgs/${orgId}/devices/${dev.deviceId}/info`)
-      setInfo(r.data)
-    })
-  }
 
   // Bridge = websocket connection alive. Device = enabled in config.
   // A device can only receive data when BOTH bridge is online AND device is enabled.
@@ -306,30 +658,34 @@ function DeviceRow({ dev, orgId, isAdmin, onRefresh }) {
               {dev.ip && <span style={{ fontSize:'0.72rem', fontFamily:'monospace', color:'var(--text-dim)', padding:'3px 8px', borderRadius:99, background:'var(--bg-surface2)', border:'1px solid var(--border-soft)' }}>🌐 {dev.ip}:{dev.port}</span>}
             </div>
 
-            {info && (
-              <div style={{ marginTop:6, padding:'4px 10px', borderRadius:7, background:'rgba(250,204,21,.06)', border:'1px solid rgba(250,204,21,.15)', fontSize:'0.75rem', color:'#facc15', fontFamily:'monospace' }}>
-                {info.name} {info.version} · {JSON.stringify(info.stats)?.slice(0,80)}
-              </div>
-            )}
           </div>
 
-          {/* Actions */}
-          <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
-            <ActionBtn label="Sync" icon={RotateCcw} disabled={busy} color="var(--text-muted)" hoverColor="#58a6ff"
-              onClick={() => act(() => api.post(`/admin/orgs/${orgId}/devices/${dev.deviceId}/sync`).then(() => toast('Sync triggered','success')))}/>
-            <ActionBtn label="Live Info" icon={BarChart2} disabled={busy} color="var(--text-muted)" hoverColor="#facc15"
-              onClick={loadInfo}/>
-            <ActionBtn label="Push Config" icon={Zap} disabled={busy} color="var(--text-muted)" hoverColor="#c084fc"
-              onClick={() => act(() => api.post(`/admin/orgs/${orgId}/devices/${dev.deviceId}/push-config`).then(() => toast('Config pushed','success')))}/>
-            <div style={{ width:1, height:20, background:'var(--border)', margin:'0 2px' }}/>
-            <ActionBtn label={devEnabled ? 'Disable' : 'Enable'} icon={devEnabled ? PowerOff : Power}
-              disabled={busy} color="var(--text-muted)" hoverColor={devEnabled ? '#f87171' : '#34d399'} danger={devEnabled}
-              onClick={() => act(() => api.patch(`/admin/orgs/${orgId}/devices/${dev.deviceId}/enabled`, { enabled: !devEnabled }).then(() => onRefresh()))}/>
-            {isAdmin && <ActionBtn label="Delete" icon={Trash2} danger color="var(--text-muted)" onClick={() => setDelConf(true)}/>}
+          {/* Actions — grouped by purpose */}
+          <div style={{ display:'flex', flexDirection:'column', gap:4, flexShrink:0, alignItems:'flex-end' }}>
+            {/* Data ops */}
+            <div style={{ display:'flex', gap:3, alignItems:'center' }}>
+              <ActionBtn label="Sync"         icon={RotateCcw} disabled={busy} color="var(--text-muted)" hoverColor="#58a6ff"
+                onClick={() => act(() => api.post(`/admin/orgs/${orgId}/devices/${dev.deviceId}/sync`).then(() => toast('Sync triggered','success')))}/>
+              <ActionBtn label="Device Control" icon={BarChart2} disabled={busy} color="var(--text-muted)" hoverColor="#facc15"
+                onClick={() => setShowCtrl(true)}/>
+              <ActionBtn label="Push Config" icon={Zap}        disabled={busy} color="var(--text-muted)" hoverColor="#c084fc"
+                onClick={() => act(() => api.post(`/admin/orgs/${orgId}/devices/${dev.deviceId}/push-config`).then(() => toast('Config pushed','success')))}/>
+            </div>
+            {/* Edit + Power + danger */}
+            <div style={{ display:'flex', gap:3, alignItems:'center' }}>
+              {isAdmin && <ActionBtn label="Edit" icon={Edit3} disabled={busy} color="var(--text-muted)" hoverColor="#facc15" onClick={() => setShowEdit(true)}/>}
+              <ActionBtn label={devEnabled ? 'Disable' : 'Enable'} icon={devEnabled ? PowerOff : Power}
+                disabled={busy} color="var(--text-muted)" hoverColor={devEnabled ? '#f87171' : '#34d399'} danger={devEnabled}
+                onClick={() => act(() => api.patch(`/admin/orgs/${orgId}/devices/${dev.deviceId}/enabled`, { enabled: !devEnabled }).then(() => onRefresh()))}/>
+              {isAdmin && <ActionBtn label="Delete" icon={Trash2} danger color="var(--text-muted)" onClick={() => setDelConf(true)}/>}
+            </div>
           </div>
 
         </div>
       </div>
+      <AdminDeviceControlModal open={showCtrl} onClose={() => setShowCtrl(false)} dev={dev} orgId={orgId} onRefresh={onRefresh}/>
+      <EditDeviceModal open={showEdit} onClose={() => setShowEdit(false)} dev={dev} orgId={orgId}
+        onSaved={onRefresh}/>
       <ConfirmModal open={delConfirm} onClose={() => setDelConf(false)}
         title="Delete Device" danger
         message={`Delete "${dev.name}"? All its machine users will also be removed.`}
@@ -463,6 +819,23 @@ function BridgeCredModal({ info, onClose }) {
   )
 }
 
+// ── Control Group ─────────────────────────────────────────────────────────────
+function ControlGroup({ label, accent, children }) {
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+      <span style={{
+        fontSize:'0.625rem', fontWeight:800, textTransform:'uppercase', letterSpacing:'0.1em',
+        color: accent || 'var(--text-dim)', paddingLeft:2, lineHeight:1,
+      }}>
+        {label}
+      </span>
+      <div style={{ display:'flex', gap:4, flexWrap:'wrap', alignItems:'center' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 // ── Org Row ───────────────────────────────────────────────────────────────────
 function OrgRow({ org: initOrg, isAdmin, onRefresh }) {
   const { toast } = useToast()
@@ -479,6 +852,7 @@ function OrgRow({ org: initOrg, isAdmin, onRefresh }) {
   const [delConfirm, setDelConf]  = useState(false)
   const [bridgeCred, setBridgeCred]= useState(null)   // show credentials modal
   const [showBridgeConnect, setShowBridgeConnect] = useState(false)
+  const [showAddDevice,    setShowAddDevice]     = useState(false)
   const [connectBridgeId, setConnectBridgeId] = useState('')
 
   useEffect(() => { setOrg(initOrg) }, [initOrg])
@@ -624,46 +998,58 @@ function OrgRow({ org: initOrg, isAdmin, onRefresh }) {
             </div>
           </div>
 
-          {/* Action buttons — grouped, compact */}
-          <div style={{ display:'flex', flexDirection:'column', gap:6, flexShrink:0 }}>
-            {/* Primary actions */}
-            <div style={{ display:'flex', gap:4 }}>
-              <ActionBtn label="Stats"    icon={BarChart2}   onClick={() => setStats(true)} color="var(--text-muted)" hoverColor="#58a6ff"/>
-              <ActionBtn label="Edit"     icon={Edit3}       onClick={() => setEdit(true)}  color="var(--text-muted)" hoverColor="#facc15"/>
-              <ActionBtn label="Users"    icon={Fingerprint} onClick={() => setMU(true)}    color="var(--text-muted)" hoverColor="#c084fc"/>
-              <ActionBtn label={expanded ? 'Hide' : 'Devices'} icon={Cpu}
-                onClick={toggle} color={expanded ? '#58a6ff' : '#9090b8'} hoverColor="#58a6ff"/>
-            </div>
-            {/* Bridge + danger actions */}
-            <div style={{ display:'flex', gap:4, justifyContent:'flex-end' }}>
-              {/* Bridge — create or connect */}
-              {!org.bridgeId && isAdmin && <>
-                <ActionBtn label="Create Bridge" icon={Plus}
-                  onClick={createBridge} disabled={busy} color="var(--text-muted)" hoverColor="#34d399"/>
-                <ActionBtn label="Connect Bridge" icon={Link2}
-                  onClick={() => setShowBridgeConnect(true)} disabled={busy} color="var(--text-muted)" hoverColor="#58a6ff"/>
+        </div>{/* end logo + info row */}
+
+        {/* ── Control Groups ── */}
+        <div style={{
+          marginTop:14, paddingTop:12, borderTop:'1px solid var(--border)',
+          display:'flex', gap:14, flexWrap:'wrap', alignItems:'flex-start',
+        }}>
+
+          {/* ── Organization ── */}
+          <ControlGroup label="Organization">
+            <ActionBtn label="Stats"         icon={BarChart2}  onClick={() => setStats(true)} color="var(--text-muted)" hoverColor="#58a6ff"/>
+            <ActionBtn label="Edit"          icon={Edit3}       onClick={() => setEdit(true)}  color="var(--text-muted)" hoverColor="#facc15"/>
+            <ActionBtn label="Machine Users" icon={Fingerprint} onClick={() => setMU(true)}    color="var(--text-muted)" hoverColor="#c084fc"/>
+            <ActionBtn
+              label={org.isActive ? 'Suspend' : 'Activate'}
+              icon={org.isActive ? ShieldOff : ShieldCheck}
+              onClick={() => org.isActive ? setSuspModal(true) : act(() => api.patch(`/admin/orgs/${org.orgId}/status`, {isActive:true}), 'Activated')}
+              disabled={busy} color="var(--text-muted)"
+              hoverColor={org.isActive ? '#f87171' : '#34d399'}
+              danger={!!org.isActive}/>
+            {isAdmin && <ActionBtn label="Delete" icon={Trash2} onClick={() => setDelConf(true)} color="var(--text-muted)" danger/>}
+          </ControlGroup>
+
+          {/* ── Bridge ── */}
+          <ControlGroup label="Bridge" accent={online ? '#34d399' : undefined}>
+            {!org.bridgeId && isAdmin && <>
+              <ActionBtn label="Create Bridge"  icon={Plus}  onClick={createBridge}                    disabled={busy} color="var(--text-muted)" hoverColor="#34d399"/>
+              <ActionBtn label="Connect Bridge" icon={Link2} onClick={() => setShowBridgeConnect(true)} disabled={busy} color="var(--text-muted)" hoverColor="#58a6ff"/>
+            </>}
+            {!org.bridgeId && !isAdmin && (
+              <span style={{ fontSize:'0.75rem', color:'var(--text-dim)', padding:'5px 4px', fontStyle:'italic' }}>No bridge assigned</span>
+            )}
+            {org.bridgeId && <>
+              <ActionBtn label="Credentials" icon={Key}       onClick={showCredentials}                                                                                       disabled={busy} color="var(--text-muted)" hoverColor="#facc15"/>
+              {isAdmin && <>
+                <ActionBtn label="Sync All"   icon={RotateCcw} onClick={() => act(() => api.post(`/admin/orgs/${org.orgId}/bridges/${org.bridgeId}/sync-all`), 'Sync All triggered ✓')} disabled={busy} color="var(--text-muted)" hoverColor="#58a6ff"/>
+                <ActionBtn label="Restart"    icon={RotateCcw} onClick={() => act(() => api.post(`/admin/orgs/${org.orgId}/bridge/restart`), 'Bridge restarted')}                        disabled={busy} color="var(--text-muted)" hoverColor="#fb923c"/>
+                <ActionBtn label="Disconnect" icon={WifiOff}   onClick={() => act(() => api.post(`/admin/orgs/${org.orgId}/bridge/disconnect`), 'Bridge disconnected')}                  disabled={busy} color="var(--text-muted)" hoverColor="#f87171"/>
               </>}
-              {org.bridgeId && <>
-                <ActionBtn label="Credentials" icon={Key}
-                  onClick={showCredentials} disabled={busy} color="var(--text-muted)" hoverColor="#facc15"/>
-              </>}
-              {org.bridgeId && isAdmin && <>
-                <ActionBtn label="Restart" icon={RotateCcw}
-                  onClick={() => act(() => api.post(`/admin/orgs/${org.orgId}/bridge/restart`), 'Bridge restarted')}
-                  disabled={busy} color="var(--text-muted)" hoverColor="#fb923c"/>
-                <ActionBtn label="Disconnect" icon={WifiOff}
-                  onClick={() => act(() => api.post(`/admin/orgs/${org.orgId}/bridge/disconnect`), 'Bridge disconnected')}
-                  disabled={busy} color="var(--text-muted)" hoverColor="#facc15"/>
-              </>}
+            </>}
+          </ControlGroup>
+
+          {/* ── Devices toggle ── */}
+          <div style={{ marginLeft:'auto' }}>
+            <ControlGroup label="Devices">
               <ActionBtn
-                label={org.isActive ? 'Suspend' : 'Activate'}
-                icon={org.isActive ? ShieldOff : ShieldCheck}
-                onClick={() => org.isActive ? setSuspModal(true) : act(() => api.patch(`/admin/orgs/${org.orgId}/status`, { isActive:true }), 'Activated')}
-                disabled={busy} color="var(--text-muted)"
-                hoverColor={org.isActive ? '#f87171' : '#34d399'}
-                danger={!!org.isActive}/>
-              {isAdmin && <ActionBtn label="Delete" icon={Trash2} onClick={() => setDelConf(true)} color="var(--text-muted)" danger/>}
-            </div>
+                label={expanded ? 'Hide Devices' : `View Devices (${org.deviceCount||0})`}
+                icon={expanded ? ChevronUp : ChevronDown}
+                onClick={toggle}
+                color={expanded ? '#58a6ff' : 'var(--text-muted)'}
+                hoverColor="#58a6ff"/>
+            </ControlGroup>
           </div>
 
         </div>
@@ -675,21 +1061,15 @@ function OrgRow({ org: initOrg, isAdmin, onRefresh }) {
           <motion.div initial={{ height:0, opacity:0 }} animate={{ height:'auto', opacity:1 }}
             exit={{ height:0, opacity:0 }} style={{ overflow:'hidden', borderTop:'1px solid var(--border)' }}>
             <div style={{ padding:'1rem', display:'flex', flexDirection:'column', gap:'0.5rem' }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <Cpu size={13} style={{ color:'var(--text-dim)' }}/>
-                  <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.1em' }}>Biometric Devices</p>
-                  <span style={{ fontSize:'0.72rem', color:'var(--text-dim)', background:'var(--bg-input)', padding:'1px 7px', borderRadius:99, border:'1px solid var(--border-soft)', fontFamily:'monospace' }}>
-                    {devices.length}
-                  </span>
-                </div>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                <Cpu size={13} style={{ color:'var(--text-dim)' }}/>
+                <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.1em' }}>Biometric Devices</p>
+                <span style={{ fontSize:'0.72rem', color:'var(--text-dim)', background:'var(--bg-input)', padding:'1px 7px', borderRadius:99, border:'1px solid var(--border-soft)', fontFamily:'monospace' }}>
+                  {devices.length}
+                </span>
                 {isAdmin && org.bridgeId && (
-                  <button onClick={() => act(() => api.post(`/admin/orgs/${org.orgId}/bridges/${org.bridgeId}/sync-all`), 'Sync All triggered ✓')}
-                    style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:9, border:'1px solid rgba(88,166,255,.25)', background:'rgba(88,166,255,.08)', color:'#58a6ff', fontSize:'0.8125rem', fontWeight:700, cursor:'pointer', transition:'all .15s' }}
-                    onMouseEnter={e=>{ e.currentTarget.style.background='var(--accent-muted)'; e.currentTarget.style.borderColor='var(--accent)' }}
-                    onMouseLeave={e=>{ e.currentTarget.style.background='var(--accent-muted)'; e.currentTarget.style.borderColor='var(--accent-border)' }}>
-                    <RotateCcw size={12}/> Sync All
-                  </button>
+                  <ActionBtn label="Add Device" icon={Plus} onClick={() => setShowAddDevice(true)}
+                    color="var(--text-muted)" hoverColor="#34d399" style={{ marginLeft:4 }}/>
                 )}
               </div>
               {loadDev ? [1,2].map(i=><div key={i} className="h-12 shimmer rounded-lg"/>) :
@@ -702,6 +1082,8 @@ function OrgRow({ org: initOrg, isAdmin, onRefresh }) {
 
       {/* Modals */}
       {bridgeCred && <BridgeCredModal info={bridgeCred} onClose={() => setBridgeCred(null)}/>}
+      <AddDeviceModal open={showAddDevice} onClose={() => setShowAddDevice(false)} orgId={org.orgId}
+        onSaved={loadDevices}/>
 
       {/* Connect existing bridge ID */}
       <Modal open={showBridgeConnect} onClose={() => setShowBridgeConnect(false)}

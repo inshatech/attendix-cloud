@@ -629,6 +629,24 @@ function ManualModal({ open, onClose, initial, orgId, employees, onSaved }) {
 
   const sf = k => e => setForm(f => ({...f, [k]: e.target.value}))
 
+  // Auto-calculate workedMinutes when inTime or outTime changes
+  function calcWorked(inT, outT) {
+    if (!inT || !outT) return ''
+    const [ih, im] = inT.split(':').map(Number)
+    const [oh, om] = outT.split(':').map(Number)
+    let mins = (oh * 60 + om) - (ih * 60 + im)
+    if (mins < 0) mins += 1440 // crosses midnight
+    return String(mins)
+  }
+  function onInTime(e) {
+    const inT = e.target.value
+    setForm(f => ({ ...f, inTime: inT, workedMinutes: calcWorked(inT, f.outTime) }))
+  }
+  function onOutTime(e) {
+    const outT = e.target.value
+    setForm(f => ({ ...f, outTime: outT, workedMinutes: calcWorked(f.inTime, outT) }))
+  }
+
   async function save() {
     if (!form.employeeId) return toast('Select an employee', 'error')
     if (!form.date)       return toast('Date is required',   'error')
@@ -675,13 +693,24 @@ function ManualModal({ open, onClose, initial, orgId, employees, onSaved }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
             <div>
               <label className="field-label">In Time</label>
-              <input type="time" value={form.inTime} onChange={sf('inTime')} className="field-input" style={{ fontFamily:'monospace' }}/>
+              <input type="time" value={form.inTime} onChange={onInTime} className="field-input" style={{ fontFamily:'monospace' }}/>
             </div>
             <div>
               <label className="field-label">Out Time</label>
-              <input type="time" value={form.outTime} onChange={sf('outTime')} className="field-input" style={{ fontFamily:'monospace' }}/>
+              <input type="time" value={form.outTime} onChange={onOutTime} className="field-input" style={{ fontFamily:'monospace' }}/>
             </div>
-            <Input label="Worked (min)" type="number" value={form.workedMinutes} onChange={sf('workedMinutes')} placeholder="480"/>
+            <div>
+              <label className="field-label" style={{ display:'flex', alignItems:'center', gap:5 }}>
+                Worked (min)
+                {form.inTime && form.outTime && (
+                  <span style={{ fontSize:'0.6rem', fontFamily:'monospace', color:'var(--accent)',
+                    background:'var(--accent-muted)', border:'1px solid var(--accent-border)',
+                    borderRadius:4, padding:'1px 4px' }}>auto</span>
+                )}
+              </label>
+              <input type="number" className="field-input" style={{ fontFamily:'monospace' }}
+                value={form.workedMinutes} onChange={sf('workedMinutes')} placeholder="480" min="0"/>
+            </div>
           </div>
         )}
         {isLeave && (
