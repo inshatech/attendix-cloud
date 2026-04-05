@@ -545,6 +545,137 @@ function OrgLogo({ org, onUpdate }) {
 }
 
 // ── Org Card ──────────────────────────────────────────────────────────────────
+// ── Punch Notify Settings Modal ───────────────────────────────────────────────
+function PunchNotifyModal({ open, onClose, orgId }) {
+  const [cfg,     setCfg]   = useState({ enabled:false, windowMinutes:10, notifyIn:true, notifyOut:true, quietStart:'22:00', quietEnd:'06:00', channels:['whatsapp','sms','email'] })
+  const [loading, setLoad]  = useState(false)
+  const [busy,    setBusy]  = useState(false)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    if (!open || !orgId) return
+    setLoad(true)
+    api.get(`/organizations/${orgId}`).then(r => {
+      const p = r.data?.punchNotify
+      if (p) setCfg({ enabled: p.enabled??false, windowMinutes: p.windowMinutes??10, notifyIn: p.notifyIn??true, notifyOut: p.notifyOut??true, quietStart: p.quietStart||'22:00', quietEnd: p.quietEnd||'06:00', channels: p.channels||['whatsapp','sms','email'] })
+    }).catch(()=>{}).finally(()=>setLoad(false))
+  }, [open, orgId])
+
+  function setF(k, v) { setCfg(s => ({ ...s, [k]: v })) }
+  function toggleChannel(ch) {
+    setCfg(s => ({
+      ...s,
+      channels: s.channels.includes(ch) ? s.channels.filter(c=>c!==ch) : [...s.channels, ch]
+    }))
+  }
+
+  async function save() {
+    setBusy(true)
+    try {
+      await api.patch(`/organizations/${orgId}`, { punchNotify: cfg })
+      toast('Punch notification settings saved', 'success'); onClose()
+    } catch (e) { toast(e.message, 'error') }
+    finally { setBusy(false) }
+  }
+
+  const CHANNELS = [
+    { id:'whatsapp', label:'WhatsApp', color:'#34d399' },
+    { id:'sms',      label:'SMS',      color:'#fbbf24' },
+    { id:'email',    label:'Email',    color:'#58a6ff' },
+  ]
+
+  return (
+    <Modal open={open} onClose={onClose} title="Punch Notifications" description="Notify guardians when employee punches in/out" size="md">
+      {loading ? <div style={{ padding:'20px 0', textAlign:'center', color:'var(--text-dim)', fontSize:'0.8rem' }}>Loading…</div> : (<>
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+
+          {/* Enable toggle */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px', borderRadius:10, background:'var(--bg-surface2)', border:'1px solid var(--border)' }}>
+            <div>
+              <p style={{ margin:0, fontWeight:700, fontSize:'0.875rem', color:'var(--text-primary)', display:'flex', alignItems:'center', gap:6 }}>
+                <Bell size={13} style={{ color:'var(--accent)' }}/> Enable Punch Notifications
+              </p>
+              <p style={{ margin:'3px 0 0', fontSize:'0.72rem', color:'var(--text-muted)', fontFamily:'monospace' }}>
+                Sends real-time alerts to guardians on every punch
+              </p>
+            </div>
+            <button onClick={() => setF('enabled', !cfg.enabled)}
+              style={{ width:44, height:24, borderRadius:12, border:'none', cursor:'pointer', transition:'all .2s', position:'relative', background: cfg.enabled ? 'var(--accent)' : 'var(--bg-elevated)' }}>
+              <span style={{ position:'absolute', top:3, left: cfg.enabled ? 22 : 3, width:18, height:18, borderRadius:'50%', background:'#fff', transition:'left .2s' }}/>
+            </button>
+          </div>
+
+          {/* Notify direction */}
+          <div className="grid grid-cols-2 gap-3">
+            {[['notifyIn','Notify on Arrival (IN)'],['notifyOut','Notify on Exit (OUT)']].map(([k,lbl])=>(
+              <label key={k} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:8, background:'var(--bg-surface2)', border:`1px solid ${cfg[k]?'var(--accent-border)':'var(--border)'}`, cursor:'pointer' }}>
+                <input type="checkbox" checked={cfg[k]} onChange={()=>setF(k,!cfg[k])} style={{ accentColor:'var(--accent)' }}/>
+                <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>{lbl}</span>
+              </label>
+            ))}
+          </div>
+
+          {/* Dedup window */}
+          <div>
+            <label className="field-label">Deduplication Window (minutes)</label>
+            <input type="number" className="field-input" value={cfg.windowMinutes} min={1} max={60}
+              onChange={e => setF('windowMinutes', Number(e.target.value))}
+              style={{ fontFamily:'monospace' }}/>
+            <p style={{ fontSize:'0.65rem', color:'var(--text-dim)', marginTop:4, fontFamily:'monospace' }}>
+              Repeat punches within this window are ignored — no duplicate notifications sent
+            </p>
+          </div>
+
+          {/* Quiet hours */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="field-label flex items-center gap-1.5"><Clock size={10}/> Quiet Hours Start</label>
+              <input type="time" className="field-input" value={cfg.quietStart} onChange={e=>setF('quietStart',e.target.value)} style={{ fontFamily:'monospace' }}/>
+            </div>
+            <div>
+              <label className="field-label flex items-center gap-1.5"><Clock size={10}/> Quiet Hours End</label>
+              <input type="time" className="field-input" value={cfg.quietEnd} onChange={e=>setF('quietEnd',e.target.value)} style={{ fontFamily:'monospace' }}/>
+            </div>
+          </div>
+
+          {/* Channels */}
+          <div>
+            <label className="field-label">Notification Channels (priority order)</label>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {CHANNELS.map(ch => (
+                <button key={ch.id} onClick={()=>toggleChannel(ch.id)}
+                  style={{ padding:'7px 16px', borderRadius:8, fontSize:'0.8rem', fontWeight:600, cursor:'pointer', transition:'all .15s',
+                    background: cfg.channels.includes(ch.id) ? `${ch.color}18` : 'var(--bg-surface2)',
+                    border: `1px solid ${cfg.channels.includes(ch.id) ? ch.color+'50' : 'var(--border)'}`,
+                    color: cfg.channels.includes(ch.id) ? ch.color : 'var(--text-muted)' }}>
+                  {ch.label}
+                </button>
+              ))}
+            </div>
+            <p style={{ fontSize:'0.65rem', color:'var(--text-dim)', marginTop:6, fontFamily:'monospace' }}>
+              Tries in order — stops at first successful channel per punch
+            </p>
+          </div>
+
+          {/* Info */}
+          <div style={{ display:'flex', gap:10, padding:'10px 14px', borderRadius:8, background:'var(--accent-muted)', border:'1px solid var(--accent-border)' }}>
+            <Bell size={13} style={{ color:'var(--accent)', flexShrink:0, marginTop:1 }}/>
+            <p style={{ margin:0, fontSize:'0.72rem', color:'var(--text-secondary)', lineHeight:1.5 }}>
+              Guardian contact must be set on each employee (Employees → Edit → Personal tab).
+              Only employees with a guardian email or mobile will receive notifications.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:8, paddingTop:14, borderTop:'1px solid var(--border)' }}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} loading={busy}><Bell size={13}/> Save Settings</Button>
+        </div>
+      </>)}
+    </Modal>
+  )
+}
+
 // ── Report Schedule Modal ─────────────────────────────────────────────────────
 const TIMEZONES = [
   'Asia/Kolkata','Asia/Karachi','Asia/Dhaka','Asia/Dubai','Asia/Singapore',
@@ -736,6 +867,7 @@ function OrgCard({ org: init, onRefresh }) {
   const [showEditOrg, setShowEditOrg] = useState(false)
   const [showDelete, setShowDelete]   = useState(false)
   const [showReport, setShowReport]   = useState(false)
+  const [showPunchNotify, setPunchNotify] = useState(false)
   const [selectedDev, setSelectedDev] = useState(null)
   const [devForm, setDevForm] = useState({ ip:'', port:'4370', name:'', model:'', location:'' })
   const [editOrgForm, setEditOrgForm] = useState({})
@@ -912,6 +1044,10 @@ function OrgCard({ org: init, onRefresh }) {
             ) : (
               <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                 <Button size="sm" variant="secondary" onClick={showCredentials}><Key size={13}/> Credentials</Button>
+                <Button size="sm" variant="secondary" onClick={() => setPunchNotify(true)}>
+                  <Bell size={13}/> Notify
+                  {org.punchNotify?.enabled && <span style={{ width:6, height:6, borderRadius:'50%', background:'#34d399', display:'inline-block', marginLeft:2 }}/>}
+                </Button>
                 <Button size="sm" variant="secondary" onClick={() => setShowReport(true)}>
                   <Bell size={13}/> Report
                   {org.reportSchedule?.enabled && <span style={{ width:6, height:6, borderRadius:'50%', background:'#34d399', display:'inline-block', marginLeft:2 }}/>}
@@ -963,6 +1099,7 @@ function OrgCard({ org: init, onRefresh }) {
           open={showDetailDev} onClose={() => setShowDetail(false)} onRefresh={loadDevices}/>
       )}
 
+      <PunchNotifyModal open={showPunchNotify} onClose={() => setPunchNotify(false)} orgId={org.orgId}/>
       <ReportScheduleModal open={showReport} onClose={() => setShowReport(false)} orgId={org.orgId}/>
 
       <Modal open={showEditOrg} onClose={() => setShowEditOrg(false)} title="Edit Organization" size="lg">

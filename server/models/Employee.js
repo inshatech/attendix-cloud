@@ -77,6 +77,12 @@ const EmployeeSchema = new mongoose.Schema({
   address:        { type: AddressSchema, default: () => ({}) },
   emergencyContact: { type: EmergencyContactSchema, default: () => ({}) },
 
+  // ── Guardian / Parent (for schools/colleges — punch notifications) ────────
+  guardianName:     { type: String, default: null },
+  guardianRelation: { type: String, default: null },   // Father, Mother, Spouse…
+  guardianMobile:   { type: String, default: null },   // WhatsApp / SMS
+  guardianEmail:    { type: String, default: null },   // Email fallback
+
   // ── Employment ────────────────────────────────────────────────────────────
   department:     { type: String, default: null, index: true },
   designation:    { type: String, default: null },

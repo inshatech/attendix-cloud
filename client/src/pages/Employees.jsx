@@ -2,7 +2,7 @@ import { useEffect, useState, Fragment } from 'react'
 import { motion } from 'framer-motion'
 import {
   Users, Plus, Search, Edit3, Trash2, RefreshCw, Eye,
-  Mail, Phone, Briefcase, Building2, Clock,
+  Mail, Phone, Briefcase, Building2, Clock, Bell,
   Cpu, Link2, Link2Off, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp,
   UserCheck, UserX, UserMinus, Shield, Activity
 } from 'lucide-react'
@@ -51,6 +51,7 @@ const EMPTY = {
   address:{ line1:'', line2:'', city:'', state:'', pincode:'', country:'India' },
   emergencyContact:{ name:'', relationship:'', phone:'' },
   leaveBalance:{ casual:0, sick:0, earned:0, maternity:0, paternity:0, other:0 },
+  guardianName:'', guardianRelation:'', guardianMobile:'', guardianEmail:'',
   notes:'',
 }
 
@@ -301,6 +302,21 @@ function EmployeeModal({ open, onClose, initial, orgId, shifts, depts, onSaved }
             <Input label="Mobile"          icon={Phone} value={form.mobile}  onChange={sfe('mobile')}  placeholder="+91 98765 43210"  type="tel"/>
           </div>
           <Input label="Alternate Mobile" value={form.mobile2} onChange={sfe('mobile2')} placeholder="Optional"/>
+
+          {/* Guardian / Parent — for punch notifications */}
+          <div style={{ paddingTop:8, borderTop:'1px solid var(--border)' }}>
+            <p style={{ fontSize:'0.6875rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:10, display:'flex', alignItems:'center', gap:5 }}>
+              <Bell size={10}/> Guardian / Parent <span style={{ fontWeight:400, color:'var(--text-dim)', textTransform:'none', letterSpacing:0 }}>(for punch notifications)</span>
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Guardian Name"     value={form.guardianName}     onChange={sfe('guardianName')}     placeholder="Mr. Khan"/>
+              <Input label="Relation"          value={form.guardianRelation} onChange={sfe('guardianRelation')} placeholder="Father, Mother…"/>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Guardian Mobile"   icon={Phone} value={form.guardianMobile} onChange={sfe('guardianMobile')} placeholder="+91 98765 43210" type="tel"/>
+              <Input label="Guardian Email"    icon={Mail}  value={form.guardianEmail}  onChange={sfe('guardianEmail')}  placeholder="parent@gmail.com" type="email"/>
+            </div>
+          </div>
         </>}
 
         {/* EMPLOYMENT */}

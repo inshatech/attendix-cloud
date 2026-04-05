@@ -40,6 +40,17 @@ const OrganizationSchema = new mongoose.Schema({
 
   meta:           { type: Object, default: {} },
 
+  // Punch notification config
+  punchNotify: {
+    enabled:       { type: Boolean, default: false },
+    windowMinutes: { type: Number,  default: 10 },     // dedup window
+    notifyIn:      { type: Boolean, default: true },
+    notifyOut:     { type: Boolean, default: true },
+    quietStart:    { type: String,  default: '22:00' }, // quiet hours start
+    quietEnd:      { type: String,  default: '06:00' }, // quiet hours end
+    channels:      { type: Array,   default: ['whatsapp','sms','email'] },
+  },
+
   // Daily attendance report schedule
   reportSchedule: {
     enabled:      { type: Boolean, default: false },

@@ -128,7 +128,7 @@ router.patch('/organizations/:orgId', requireAuth, generalApiLimiter, async (req
     const org = await getOwnedOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
     if (!org) return res.status(404).json({ error: 'Organization not found' });
 
-    const allowed = ['name','industry','address','city','state','country','phone','email','logoUrl'];
+    const allowed = ['name','industry','address','city','state','country','phone','email','logoUrl','punchNotify','reportSchedule'];
     const update  = {};
     for (const k of allowed) if (req.body[k] !== undefined) update[k] = req.body[k];
     if (!Object.keys(update).length) return res.status(400).json({ error: 'Nothing to update' });

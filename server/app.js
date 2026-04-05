@@ -144,8 +144,9 @@ mongoose.connection.once('open', () => {
 });
 
 // ── SUBSCRIPTION & ORGANIZATION MODULES ──────────────────────────────────────
-require('./models/Subscription');   // register schemas
-require('./models/Organization');   // register schemas
+require('./models/Subscription');      // register schemas
+require('./models/Organization');      // register schemas
+require('./models/NotificationQueue'); // register schema
 const subService = require('./services/subscriptionService');
 const orgRouter     = require('./routes/organizations');
 const initOrgRoutes = orgRouter.init;
@@ -392,6 +393,121 @@ setInterval(async () => {
   } catch (e) { console.error('[report-cron] error:', e.message); }
 }, 60 * 1000);
 
+// ── PUNCH NOTIFICATION QUEUE ──────────────────────────────────────────────────
+const NotificationQueue  = require('./models/NotificationQueue');
+const Employee           = require('./models/Employee');
+const { sendPunchNotification, isQuietHour } = require('./services/sendPunchNotification');
+
+/**
+ * Resolve punch direction from punchType integer:
+ *   0,4 = IN  |  1,5 = OUT  |  else = UNKNOWN
+ */
+function resolvePunchDirection(punchType) {
+  if (punchType === 0 || punchType === 4) return 'IN';
+  if (punchType === 1 || punchType === 5) return 'OUT';
+  return 'UNKNOWN';
+}
+
+/**
+ * Called on every REALTIME_PUNCH — deduplicates and pushes to NotificationQueue.
+ * Never throws — fully fire-and-forget.
+ */
+async function _queuePunchNotification({ bridgeId, deviceId, log, punchType }) {
+  try {
+    // Find the org for this bridge
+    const org = await Organization.findOne({ bridgeId, isActive: true }).lean();
+    if (!org?.punchNotify?.enabled) return;
+
+    const cfg = org.punchNotify;
+    const tz  = org.reportSchedule?.timezone || 'Asia/Kolkata';
+
+    // Quiet hours check
+    const punchTime = new Date(log.timestamp);
+    if (isQuietHour(punchTime, cfg.quietStart, cfg.quietEnd, tz)) return;
+
+    // Resolve direction
+    const direction = resolvePunchDirection(punchType);
+    if (direction === 'IN'  && !cfg.notifyIn)  return;
+    if (direction === 'OUT' && !cfg.notifyOut) return;
+
+    // Find employee via MachineUser link
+    const uid    = String(log.user_id || log.userId || '');
+    const mu     = await MachineUser.findOne({ bridgeId, deviceId, uid }).select('userId').lean();
+    if (!mu?.userId || !mu.userId.startsWith('emp-')) return;
+
+    const emp = await Employee.findOne({ employeeId: mu.userId })
+      .select('displayName firstName lastName guardianName guardianRelation guardianMobile guardianEmail orgId')
+      .lean();
+    if (!emp) return;
+
+    // Must have at least one contact
+    if (!emp.guardianEmail && !emp.guardianMobile) return;
+
+    // Dedup window — check if we already queued/sent a notification for this direction within window
+    const windowMs  = (cfg.windowMinutes || 10) * 60 * 1000;
+    const windowAgo = new Date(punchTime.getTime() - windowMs);
+    const recent    = await NotificationQueue.findOne({
+      orgId: org.orgId, employeeId: emp.employeeId || mu.userId,
+      direction,
+      createdAt: { $gte: windowAgo },
+    }).lean();
+    if (recent) return; // duplicate within window — skip
+
+    // Find device name
+    const dev = await Device.findOne({ bridgeId, deviceId }).select('name location').lean();
+    const deviceName = dev?.name || dev?.location || deviceId;
+
+    const empName = emp.displayName || `${emp.firstName} ${emp.lastName || ''}`.trim();
+
+    // Push to queue
+    await NotificationQueue.create({
+      type:       'punch',
+      orgId:      org.orgId,
+      employeeId: mu.userId,
+      empName,
+      direction,
+      punchTime,
+      deviceName,
+      deviceId,
+      guardianName:   emp.guardianName,
+      guardianRelation: emp.guardianRelation,
+      guardianEmail:  emp.guardianEmail,
+      guardianMobile: emp.guardianMobile,
+      channels:       cfg.channels || ['whatsapp','sms','email'],
+      status:         'pending',
+    });
+  } catch (e) {
+    console.error('[punch-notify] queue error:', e.message);
+  }
+}
+
+// Queue worker — runs every 5 seconds, processes up to 20 pending items
+const MAX_RETRIES = 3;
+const BATCH_SIZE  = 20;
+setInterval(async () => {
+  try {
+    const items = await NotificationQueue.find({ status: 'pending', retries: { $lt: MAX_RETRIES } })
+      .sort({ createdAt: 1 }).limit(BATCH_SIZE).lean();
+    if (!items.length) return;
+
+    for (const item of items) {
+      try {
+        const org = await Organization.findOne({ orgId: item.orgId }).select('punchNotify reportSchedule').lean();
+        const cfg = org?.punchNotify || {};
+        const tz  = org?.reportSchedule?.timezone || 'Asia/Kolkata';
+        await sendPunchNotification(item, cfg, tz);
+        await NotificationQueue.updateOne({ _id: item._id }, { $set: { status: 'sent', sentAt: new Date() } });
+      } catch (e) {
+        const newRetries = (item.retries || 0) + 1;
+        await NotificationQueue.updateOne({ _id: item._id }, {
+          $set: { lastError: e.message, retries: newRetries,
+            status: newRetries >= MAX_RETRIES ? 'failed' : 'pending' },
+        });
+      }
+    }
+  } catch (e) { console.error('[notify-worker] error:', e.message); }
+}, 5000);
+
 // ── SUBSCRIPTION EXPIRY CRON (runs every hour) ────────────────────────────────
 setInterval(async () => {
   try {
@@ -465,11 +581,14 @@ wss.on('connection', (socket, req) => {
       pushSSE({ type:'REALTIME_PUNCH', bridgeId, deviceId:msg.deviceId, log });
       const b = bridgeMap.get(bridgeId);
       if ((b?.deviceEnabled instanceof Map) ? b.deviceEnabled.get(msg.deviceId) === false : false) return;
+      const punchType = normalisePunchType(log.punch_type??log.punchType??log.state_code);
       AttendanceLog.updateOne(
         { bridgeId, deviceId:msg.deviceId, userId:String(log.user_id||log.userId||''), timestamp:new Date(log.timestamp) },
-        { $set:{ punchType:normalisePunchType(log.punch_type??log.punchType??log.state_code), rawJson:parseRawJson(log), syncedAt:new Date() } },
+        { $set:{ punchType, rawJson:parseRawJson(log), syncedAt:new Date() } },
         { upsert:true }
       ).catch(()=>{});
+      // Queue punch notification (fire-and-forget, never blocks punch save)
+      _queuePunchNotification({ bridgeId, deviceId: msg.deviceId, log, punchType }).catch(()=>{});
       return;
     }
     if (msg.type === 'ATTENDANCE_SYNC') {
