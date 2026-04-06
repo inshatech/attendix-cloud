@@ -6,6 +6,7 @@ import {
   Zap, Lock, Users, BarChart2, Globe, Clock, CheckCircle2, Mail, Eye, EyeOff,
   Heart
 } from 'lucide-react'
+import BridgeDownloadCard from '../components/ui/BridgeDownloadCard'
 import { OtpInput } from '../components/ui/OtpInput'
 import { Modal } from '../components/ui/Modal'
 import { Toaster, useToast } from '../components/ui/Toast'
@@ -214,21 +215,8 @@ function LeftPanel({ activeF, setActiveF }) {
         </div>
       </div>
 
-      {/* Trust bar */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8,
-        paddingTop: 16, borderTop: '1px solid var(--border)'
-      }}>
-        {[{ n: '99.9%', l: 'Uptime' }, { n: '<1s', l: 'Sync speed' }, { n: 'AES-256', l: 'Encryption' }, { n: '2FA', l: 'Auth' }].map(s => (
-          <div key={s.l} style={{
-            textAlign: 'center', padding: '9px 4px', borderRadius: 9,
-            background: 'var(--bg-surface2)', border: '1px solid var(--border)'
-          }}>
-            <p style={{ fontWeight: 900, fontFamily: 'monospace', color: 'var(--accent)', fontSize: '0.875rem' }}>{s.n}</p>
-            <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2, fontWeight: 500 }}>{s.l}</p>
-          </div>
-        ))}
-      </div>
+      {/* Bridge download */}
+      <BridgeDownloadCard />
     </div>
   )
 }

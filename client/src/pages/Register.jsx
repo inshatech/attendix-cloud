@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { renderGoogleButton } from '../lib/googleAuth'
 import { User, Mail, Lock, Smartphone, ArrowRight, Fingerprint, CheckCircle2, Sun, Moon, Zap, Shield, BarChart2, Globe, Clock, Users, Heart } from 'lucide-react'
+import BridgeDownloadCard from '../components/ui/BridgeDownloadCard'
 import { Input } from '../components/ui/Input'
 import { Toaster, useToast } from '../components/ui/Toast'
 import { useAuth } from '../store/auth'
@@ -201,24 +202,8 @@ export default function Register() {
             </div>
           </div>
 
-          {/* ── Trust bar ── */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8,
-            paddingTop: 16, borderTop: '1px solid var(--border)'
-          }}>
-            {[{ n: '99.9%', l: 'Uptime' }, { n: '<1s', l: 'Sync speed' }, { n: 'AES-256', l: 'Encryption' }, { n: '2FA', l: 'Auth' }].map(s => (
-              <div key={s.l} style={{
-                textAlign: 'center', padding: '10px 6px', borderRadius: 9,
-                background: 'var(--bg-surface2)', border: '1px solid var(--border)'
-              }}>
-                <p style={{
-                  fontWeight: 900, fontFamily: 'monospace', color: 'var(--accent)',
-                  fontSize: '0.875rem', letterSpacing: '-0.01em'
-                }}>{s.n}</p>
-                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3, fontWeight: 500 }}>{s.l}</p>
-              </div>
-            ))}
-          </div>
+          {/* Bridge download */}
+          <BridgeDownloadCard />
         </div>
       </div>
 

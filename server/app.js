@@ -189,6 +189,23 @@ app.get('/tawk-config', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── BRIDGE APP INFO (public — login/register page download card) ──────────────
+app.get('/bridge-app/info', async (req, res) => {
+  try {
+    const { Plugin } = require('./models/Plugin')
+    const p = await Plugin.findOne({ name: 'bridge_app', enabled: true }).lean()
+    if (!p?.config?.downloadUrl) return res.json({ configured: false })
+    const c = p.config
+    res.json({
+      configured  : true,
+      version     : c.version     || null,
+      fileSizeMb  : c.fileSizeMb  || null,
+      changelog   : c.changelog   || null,
+      downloadUrl : c.downloadUrl,
+    })
+  } catch(e) { res.status(500).json({ error: e.message }) }
+})
+
 // ── APPLY GENERAL RATE LIMIT TO ALL /api ROUTES ───────────────────────────────
 app.use('/api', generalApiLimiter);
 
