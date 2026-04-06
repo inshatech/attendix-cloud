@@ -14,6 +14,7 @@ const {
 } = require('../auth/helpers');
 const { requireAuth } = require('../auth/middleware');
 const { otpSendLimiter, otpVerifyLimiter, loginLimiter, refreshLimiter } = require('../auth/rateLimits');
+const { sendWelcomeEmail, sendPasswordChangedEmail } = require('../notify/authNotify');
 
 const MAX_ATTEMPTS  = 5;
 const LOCKOUT_MS    = 30 * 60 * 1000;
@@ -341,6 +342,7 @@ router.post('/reset-password', otpVerifyLimiter, async (req, res) => {
         [field]: { code: null, expiresAt: null, attempts: 0 },
       },
     });
+    sendPasswordChangedEmail(u, true);
     res.json({ status: 'success', message: 'Password reset. Please log in.' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -358,6 +360,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
     await AuthUser.updateOne({ userId: u.userId }, {
       $set: { passwordHash: await hashPassword(newPassword), passwordChangedAt: new Date(), refreshTokens: [] },
     });
+    sendPasswordChangedEmail(u, false);
     res.json({ status: 'success', message: 'Password changed. All devices logged out.' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -496,6 +499,9 @@ router.post('/register', async (req, res) => {
       modules:        [],
       createdBy:      'self-register',
     });
+
+    // Send welcome email (fire-and-forget)
+    sendWelcomeEmail(u);
 
     // Trial starts when user creates their first organization (not on signup)
     // Issue tokens immediately (auto-login after register)

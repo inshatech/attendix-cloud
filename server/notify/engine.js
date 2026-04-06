@@ -126,53 +126,81 @@ async function sendEmail(to, subject, html, text) {
 async function buildOtpHtml(name, code) {
   const b = await getBrand();
   const logoBlock = b.logoUrl
-    ? `<img src="${b.logoUrl}" alt="${b.appName}" style="height:32px;width:auto;object-fit:contain;"/>`
-    : `<span style="font-size:22px;">🔐</span>`;
+    ? `<img src="${b.logoUrl}" alt="${b.appName}" style="height:30px;width:auto;object-fit:contain;display:block;"/>`
+    : `<span style="font-size:20px;">🔐</span>`;
   return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${b.appName} — OTP</title></head>
-<body style="margin:0;padding:0;background:#0a0a14;font-family:'Segoe UI',Arial,sans-serif;">
-  <div style="max-width:480px;margin:40px auto;padding:0 16px;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>${b.appName} — OTP</title>
+  <style>
+    /* ── Mobile ──────────────────────────────────── */
+    @media only screen and (max-width:600px) {
+      .aw  { padding:0 6px !important; margin:12px auto !important; }
+      .ah  { padding:16px !important; }
+      .ab  { padding:22px 16px !important; }
+      .af  { padding:12px 16px !important; }
+      .otp { font-size:38px !important; letter-spacing:10px !important; }
+    }
+    /* ── Light mode (Apple Mail, iOS Mail, Gmail iOS) ── */
+    @media (prefers-color-scheme:light) {
+      .outer { background:#f0f0f8 !important; }
+      .ah    { background:#ffffff !important; border-color:#dde0f0 !important; }
+      .ab    { background:#ffffff !important; border-color:#dde0f0 !important; }
+      .af    { background:#f8f8fc !important; border-color:#dde0f0 !important; }
+      .otpbx { background:#f0f2ff !important; border-color:#c8cef0 !important; }
+      .c-head { color:#1a1a2e !important; }
+      .c-sub  { color:#5050a0 !important; }
+      .c-body { color:#4a4a80 !important; }
+      .c-foot { color:#8888b0 !important; }
+    }
+  </style>
+</head>
+<body class="outer" style="margin:0;padding:0;background:#0a0a14;font-family:'Segoe UI',Arial,sans-serif;">
+  <div class="aw" style="max-width:480px;margin:32px auto;padding:0 14px;">
 
     <!-- Header -->
-    <div style="background:#111121;border:1px solid #1e1e35;border-radius:14px 14px 0 0;padding:22px 28px;display:flex;align-items:center;gap:14px;border-bottom:1px solid #1e1e35;">
-      <div style="width:40px;height:40px;border-radius:10px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.25);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+    <div class="ah" style="background:#111121;border:1px solid #1e1e35;border-radius:14px 14px 0 0;padding:18px 24px;display:flex;align-items:center;gap:12px;">
+      <div style="width:38px;height:38px;border-radius:10px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.25);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
         ${logoBlock}
       </div>
       <div>
-        <p style="margin:0;color:#e0e0f0;font-weight:700;font-size:0.95rem;letter-spacing:-0.01em;">${b.appName}</p>
-        <p style="margin:2px 0 0;color:#4a4a72;font-size:0.7rem;font-family:monospace;">${b.tagline}</p>
+        <p class="c-head" style="margin:0;color:#e0e0f0;font-weight:700;font-size:0.9rem;">${b.appName}</p>
+        <p class="c-sub" style="margin:2px 0 0;color:#4a4a72;font-size:0.65rem;font-family:monospace;">${b.tagline}</p>
       </div>
     </div>
 
     <!-- Body -->
-    <div style="background:#111121;border:1px solid #1e1e35;border-top:none;padding:32px 28px;">
-      <p style="margin:0 0 6px;color:#7070a0;font-size:0.8rem;font-family:monospace;text-transform:uppercase;letter-spacing:0.1em;">One-Time Passcode</p>
-      <h1 style="margin:0 0 20px;font-size:1.4rem;font-weight:800;color:#e0e0f0;letter-spacing:-0.02em;">Verify your identity</h1>
-      <p style="margin:0 0 28px;color:#8080a8;font-size:0.9rem;line-height:1.6;">
+    <div class="ab" style="background:#111121;border:1px solid #1e1e35;border-top:none;padding:28px 24px;">
+      <p class="c-sub" style="margin:0 0 5px;color:#7070a0;font-size:0.72rem;font-family:monospace;text-transform:uppercase;letter-spacing:0.12em;">One-Time Passcode</p>
+      <h1 class="c-head" style="margin:0 0 16px;font-size:1.25rem;font-weight:800;color:#e0e0f0;letter-spacing:-0.02em;">Verify your identity</h1>
+      <p class="c-body" style="margin:0 0 24px;color:#8080a8;font-size:0.875rem;line-height:1.7;">
         Hi <strong style="color:#d0d0ec;">${name}</strong>, use the code below to complete your sign-in.
         This code expires in <strong style="color:#d0d0ec;">10 minutes</strong>.
       </p>
 
       <!-- OTP Box -->
-      <div style="background:#0a0a14;border:1px solid #2a2a45;border-radius:12px;padding:28px 20px;text-align:center;margin:0 0 28px;">
-        <p style="margin:0 0 8px;color:#4a4a72;font-size:0.7rem;font-family:monospace;letter-spacing:0.15em;text-transform:uppercase;">Your OTP</p>
-        <span style="font-family:'Courier New',monospace;font-size:48px;font-weight:700;letter-spacing:14px;color:#58a6ff;display:block;line-height:1.1;">${code}</span>
+      <div class="otpbx" style="background:#0a0a14;border:2px solid #2a2a50;border-radius:12px;padding:24px 16px;text-align:center;margin:0 0 8px;">
+        <p class="c-sub" style="margin:0 0 10px;color:#4a4a72;font-size:0.65rem;font-family:monospace;letter-spacing:0.15em;text-transform:uppercase;">Your OTP — tap &amp; hold to copy</p>
+        <span class="otp" style="font-family:'Courier New',monospace;font-size:46px;font-weight:700;letter-spacing:12px;color:#58a6ff;display:block;line-height:1.15;user-select:all;-webkit-user-select:all;">${code}</span>
       </div>
+      <p style="margin:0 0 20px;color:#3a3a5a;font-size:0.68rem;text-align:center;">On mobile: tap and hold the code above to copy it</p>
 
       <!-- Warning -->
-      <div style="background:rgba(248,113,113,0.07);border:1px solid rgba(248,113,113,0.2);border-radius:8px;padding:12px 16px;display:flex;gap:10px;align-items:flex-start;">
-        <span style="font-size:14px;flex-shrink:0;margin-top:1px;">🔒</span>
-        <p style="margin:0;color:#f87171;font-size:0.78rem;line-height:1.5;">Never share this code with anyone. ${b.appName} staff will never ask for your OTP.</p>
+      <div style="background:rgba(248,113,113,0.07);border:1px solid rgba(248,113,113,0.22);border-radius:8px;padding:12px 16px;">
+        <p style="margin:0;color:#f87171;font-size:0.78rem;line-height:1.6;">
+          🔒 Never share this code. ${b.appName} staff will never ask for your OTP.
+        </p>
       </div>
     </div>
 
     <!-- Footer -->
-    <div style="background:#0d0d1a;border:1px solid #1e1e35;border-top:none;border-radius:0 0 14px 14px;padding:16px 28px;text-align:center;">
-      <p style="margin:0;color:#3a3a58;font-size:0.7rem;">
+    <div class="af" style="background:#0d0d1a;border:1px solid #1e1e35;border-top:none;border-radius:0 0 14px 14px;padding:14px 24px;text-align:center;">
+      <p class="c-foot" style="margin:0;color:#3a3a58;font-size:10px;">
         ${b.companyName ? `© ${new Date().getFullYear()} ${b.companyName} · ` : ''}${b.appName} · Automated notification · Do not reply
       </p>
-      ${b.website ? `<p style="margin:6px 0 0;"><a href="${b.website}" style="color:#58a6ff;font-size:0.7rem;text-decoration:none;">${b.website.replace(/^https?:\/\//,'')}</a></p>` : ''}
+      ${b.website ? `<p style="margin:5px 0 0;"><a href="${b.website}" style="color:#58a6ff;font-size:10px;text-decoration:none;">${b.website.replace(/^https?:\/\//,'')}</a></p>` : ''}
     </div>
 
   </div>

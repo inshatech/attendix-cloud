@@ -15,6 +15,7 @@ const {
 
 const { requireAuth, requireRole } = require('../auth/middleware');
 const { generalApiLimiter, adminApiLimiter, strictAdminLimiter } = require('../auth/rateLimits');
+const { sendSubscriptionEmail } = require('../notify/authNotify');
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  ADMIN — Plan Management
@@ -142,6 +143,7 @@ router.post('/admin/subscriptions', requireAuth, requireRole('admin'), adminApiL
     const orgs = await Organization.find({ ownerId: userId, isActive: false }).lean();
     for (const org of orgs) { await resumeOrg(org.orgId); }
 
+    sendSubscriptionEmail(userId, { planName: plan.name, status: sub.status, endDate: sub.endDate, billingCycle: sub.billingCycle, notes });
     res.status(201).json({ status: 'success', data: sub });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -174,6 +176,11 @@ router.patch('/admin/subscriptions/:subId', requireAuth, requireRole('admin'), a
       for (const org of orgs) await suspendOrg(org.orgId, `Subscription ${status}`);
     }
 
+    // Notify user when status meaningfully changes
+    if (status) {
+      const plan = await SubscriptionPlan.findOne({ planId: sub.planId }).lean();
+      sendSubscriptionEmail(sub.userId, { planName: plan?.name || sub.planId, status: sub.status, endDate: sub.endDate, billingCycle: sub.billingCycle, notes });
+    }
     res.json({ status: 'success', data: sub });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

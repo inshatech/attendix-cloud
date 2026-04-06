@@ -5,6 +5,13 @@ const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 const { requireAuth, requireRole } = require('../auth/middleware');
 const { generalApiLimiter } = require('../auth/rateLimits');
+const {
+  notifyNewTicket,
+  notifyStaffReply,
+  notifyUserReply,
+  notifyStatusChange,
+  notifyTicketCreatedForUser,
+} = require('../notify/ticketNotify');
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 const MessageSchema = new mongoose.Schema({
@@ -97,6 +104,12 @@ router.post('/tickets', async (req, res) => {
         body:       body.trim(),
       }],
     });
+    // Notify: staff get alerted on new ticket; user gets alerted if staff opened on their behalf
+    if (isStaff && targetUserId) {
+      notifyTicketCreatedForUser(ticket);
+    } else {
+      notifyNewTicket(ticket);
+    }
     res.status(201).json({ status: 'success', data: ticket });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -131,6 +144,7 @@ router.post('/tickets/:ticketId/reply', async (req, res) => {
       { new: true }
     );
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    notifyUserReply(ticket, ticket.messages[ticket.messages.length - 1]);
     res.json({ status: 'success', data: ticket });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -227,6 +241,8 @@ router.post('/admin/tickets/:ticketId/reply', requireRole('admin', 'support'), a
       { new: true }
     );
     if (!ticket) return res.status(404).json({ error: 'Not found' });
+    const lastMsg = ticket.messages[ticket.messages.length - 1];
+    notifyStaffReply(ticket, lastMsg);
     res.json({ status: 'success', data: ticket });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -241,12 +257,14 @@ router.patch('/admin/tickets/:ticketId', requireRole('admin', 'support'), async 
     if (assignedTo !== undefined)  update.assignedTo   = assignedTo;
     if (assignedName !== undefined) update.assignedName = assignedName;
     if (status === 'closed')       update.closedAt     = new Date();
+    const oldStatus = (await Ticket.findOne({ ticketId: req.params.ticketId }).select('status').lean())?.status;
     const ticket = await Ticket.findOneAndUpdate(
       { ticketId: req.params.ticketId },
       { $set: update },
       { new: true }
     );
     if (!ticket) return res.status(404).json({ error: 'Not found' });
+    if (status && status !== oldStatus) notifyStatusChange(ticket, oldStatus);
     res.json({ status: 'success', data: ticket });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

@@ -17,9 +17,11 @@ const { sendEmail, getBrand } = require('./engine');
 
 // ── HTML helpers ──────────────────────────────────────────────────────────────
 
+const ACCENT = '#58a6ff';
+
 /**
  * Wraps body HTML in a polished branded email shell.
- * Accepts an optional brand object; if omitted falls back to defaults.
+ * Mobile-responsive + light-mode CSS included.
  */
 function wrap(body, brand = {}) {
   const appName     = brand.appName     || 'Attendix';
@@ -30,8 +32,8 @@ function wrap(body, brand = {}) {
   const year        = new Date().getFullYear();
 
   const logoBlock = logoUrl
-    ? `<img src="${logoUrl}" alt="${appName}" style="height:28px;width:auto;object-fit:contain;"/>`
-    : `<span style="font-size:18px;">🔐</span>`;
+    ? `<img src="${logoUrl}" alt="${appName}" style="height:28px;width:auto;object-fit:contain;display:block;"/>`
+    : `<span style="font-size:18px;">🎫</span>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -39,32 +41,52 @@ function wrap(body, brand = {}) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>${appName}</title>
+  <style>
+    @media only screen and (max-width:600px) {
+      .aw { padding:0 6px !important; margin:12px auto !important; }
+      .ah { padding:14px 16px !important; }
+      .ab { padding:20px 16px !important; }
+      .af { padding:12px 16px !important; }
+    }
+    @media (prefers-color-scheme:light) {
+      .outer { background:#f0f0f8 !important; }
+      .ah    { background:#ffffff !important; border-color:#dde0f0 !important; }
+      .ab    { background:#ffffff !important; border-color:#dde0f0 !important; }
+      .af    { background:#f8f8fc !important; border-color:#dde0f0 !important; }
+      .tc    { background:#f0f2ff !important; border-color:#c8cef0 !important; }
+      .mc    { background:#f4f4fc !important; border-color:#dde0f0 !important; }
+      .c-head { color:#1a1a2e !important; }
+      .c-sub  { color:#5050a0 !important; }
+      .c-body { color:#4a4a80 !important; }
+      .c-foot { color:#8888b0 !important; }
+    }
+  </style>
 </head>
-<body style="margin:0;padding:0;background:#0a0a14;font-family:'Segoe UI',Arial,sans-serif;">
-  <div style="max-width:560px;margin:40px auto;padding:0 16px;">
+<body class="outer" style="margin:0;padding:0;background:#0a0a14;font-family:'Segoe UI',Arial,sans-serif;">
+  <div class="aw" style="max-width:540px;margin:32px auto;padding:0 12px;">
 
     <!-- Header -->
-    <div style="background:#111121;border:1px solid #1e1e35;border-radius:14px 14px 0 0;padding:20px 28px;display:flex;align-items:center;gap:14px;border-bottom:1px solid #1e1e35;">
-      <div style="width:38px;height:38px;border-radius:10px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.25);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+    <div class="ah" style="background:#111121;border:1px solid #1e1e35;border-radius:14px 14px 0 0;padding:18px 24px;display:flex;align-items:center;gap:12px;">
+      <div style="width:36px;height:36px;border-radius:9px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.25);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
         ${logoBlock}
       </div>
       <div>
-        <p style="margin:0;color:#e0e0f0;font-weight:700;font-size:0.95rem;">${appName}</p>
-        <p style="margin:2px 0 0;color:#4a4a72;font-size:0.7rem;font-family:monospace;">${tagline}</p>
+        <p class="c-head" style="margin:0;color:#e0e0f0;font-weight:700;font-size:0.9rem;">${appName}</p>
+        <p class="c-sub" style="margin:2px 0 0;color:#4a4a72;font-size:0.65rem;font-family:monospace;">${tagline}</p>
       </div>
     </div>
 
     <!-- Body -->
-    <div style="background:#111121;border:1px solid #1e1e35;border-top:none;padding:28px;">
+    <div class="ab" style="background:#0d0d1a;border:1px solid #1e1e35;border-top:none;padding:26px 24px;">
       ${body}
     </div>
 
     <!-- Footer -->
-    <div style="background:#0d0d1a;border:1px solid #1e1e35;border-top:none;border-radius:0 0 14px 14px;padding:16px 28px;text-align:center;">
-      <p style="margin:0;color:#3a3a58;font-size:0.7rem;">
+    <div class="af" style="background:#0a0a14;border:1px solid #1e1e35;border-top:none;border-radius:0 0 14px 14px;padding:14px 24px;text-align:center;">
+      <p class="c-foot" style="margin:0;color:#3a3a58;font-size:10px;">
         ${companyName ? `© ${year} ${companyName} · ` : ''}${appName} · Automated notification · Do not reply
       </p>
-      ${website ? `<p style="margin:6px 0 0;"><a href="${website}" style="color:#58a6ff;font-size:0.7rem;text-decoration:none;">${website.replace(/^https?:\/\//,'')}</a></p>` : ''}
+      ${website ? `<p style="margin:5px 0 0;"><a href="${website}" style="color:${ACCENT};font-size:10px;text-decoration:none;">${website.replace(/^https?:\/\//,'')}</a></p>` : ''}
     </div>
 
   </div>
@@ -76,27 +98,27 @@ function ticketCard(ticket) {
   const prColors = { critical:'#f87171', high:'#fb923c', medium:'#facc15', low:'#94a3b8' };
   const pc = prColors[ticket.priority] || '#94a3b8';
   return `
-  <div style="background:#0f0f18;border:1px solid #1e1e30;border-radius:8px;padding:14px 16px;margin:16px 0;border-left:3px solid ${pc};">
+  <div class="tc" style="background:#0f0f1c;border:1px solid #1e1e30;border-radius:8px;padding:14px 16px;margin:16px 0;border-left:3px solid ${pc};">
     <p style="margin:0 0 4px;color:#5a5a7a;font-size:0.65rem;font-family:monospace;">${ticket.ticketId}</p>
-    <p style="margin:0 0 8px;color:#d0d0e8;font-weight:600;font-size:0.9rem;">${ticket.subject}</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <span style="color:${pc};background:${pc}22;padding:2px 8px;border-radius:99px;font-size:0.65rem;font-weight:700;">${ticket.priority?.toUpperCase()}</span>
-      <span style="color:#9090b8;background:#1e1e30;padding:2px 8px;border-radius:99px;font-size:0.65rem;text-transform:capitalize;">${ticket.category}</span>
-      <span style="color:#9090b8;background:#1e1e30;padding:2px 8px;border-radius:99px;font-size:0.65rem;">From: ${ticket.userName}</span>
+    <p class="c-head" style="margin:0 0 8px;color:#d0d0e8;font-weight:600;font-size:0.875rem;">${ticket.subject}</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <span style="color:${pc};background:${pc}22;padding:2px 8px;border-radius:99px;font-size:0.65rem;font-weight:700;">${(ticket.priority||'').toUpperCase()}</span>
+      <span style="color:#9090b8;background:#1e1e30;padding:2px 8px;border-radius:99px;font-size:0.65rem;text-transform:capitalize;">${ticket.category||'general'}</span>
+      <span style="color:#9090b8;background:#1e1e30;padding:2px 8px;border-radius:99px;font-size:0.65rem;">From: ${ticket.userName||''}</span>
     </div>
   </div>`;
 }
 
 function msgBox(message) {
   return `
-  <div style="background:#0a0a0f;border:1px solid #1e1e30;border-radius:8px;padding:14px 16px;margin:12px 0;">
-    <p style="margin:0 0 6px;color:#5a5a7a;font-size:0.7rem;">${message.authorName} · ${new Date(message.createdAt||Date.now()).toLocaleString('en-IN')}</p>
-    <p style="margin:0;color:#9090b8;font-size:0.85rem;line-height:1.6;white-space:pre-wrap;">${String(message.body||'').slice(0,500)}</p>
+  <div class="mc" style="background:#0a0a14;border:1px solid #1e1e30;border-radius:8px;padding:14px 16px;margin:12px 0;">
+    <p style="margin:0 0 6px;color:#5a5a7a;font-size:0.68rem;">${message.authorName||''} · ${new Date(message.createdAt||Date.now()).toLocaleString('en-IN')}</p>
+    <p class="c-body" style="margin:0;color:#9090b8;font-size:0.85rem;line-height:1.65;white-space:pre-wrap;">${String(message.body||'').slice(0,600)}</p>
   </div>`;
 }
 
 function btn(text, url) {
-  return `<div style="text-align:center;margin-top:20px;"><a href="${url}" style="display:inline-block;padding:10px 24px;background:${BASE};color:#fff;border-radius:8px;font-weight:600;font-size:0.875rem;text-decoration:none;">${text}</a></div>`;
+  return `<div style="text-align:center;margin-top:20px;"><a href="${url}" style="display:inline-block;padding:11px 28px;background:${ACCENT};color:#fff;border-radius:8px;font-weight:600;font-size:0.875rem;text-decoration:none;">${text}</a></div>`;
 }
 
 // ── Get user contact ──────────────────────────────────────────────────────────
