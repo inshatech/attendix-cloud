@@ -5,7 +5,7 @@ import { ArrowRight } from 'lucide-react'
 
 export function UserPage({ children, className }) {
   return (
-    <div className={className} style={{ padding:'2rem 2.5rem', maxWidth:1300, margin:'0 auto', display:'flex', flexDirection:'column', gap:'2rem' }}>
+    <div className={className} style={{ padding:'clamp(1rem, 4vw, 2.5rem)', maxWidth:1300, margin:'0 auto', display:'flex', flexDirection:'column', gap:'clamp(1rem, 3vw, 2rem)' }}>
       {children}
     </div>
   )

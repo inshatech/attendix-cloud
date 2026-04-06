@@ -4,7 +4,7 @@ import { ArrowRight } from 'lucide-react'
 
 export function AdminPage({ children }) {
   return (
-    <div style={{ padding:'2rem 2.5rem', maxWidth:1300, margin:'0 auto', display:'flex', flexDirection:'column', gap:'2rem' }}>
+    <div style={{ padding:'clamp(1rem, 4vw, 2.5rem)', maxWidth:1300, margin:'0 auto', display:'flex', flexDirection:'column', gap:'clamp(1rem, 3vw, 2rem)' }}>
       {children}
     </div>
   )

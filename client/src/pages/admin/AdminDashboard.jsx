@@ -168,7 +168,7 @@ export default function AdminDashboard() {
   const plugErr = d?.plugins?.filter(p => p.enabled && p.lastTestResult && p.lastTestResult !== 'ok').length || 0
 
   return (
-    <div style={{ padding: '2rem 2.5rem', maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+    <div style={{ padding: 'clamp(1rem, 4vw, 2.5rem)', maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'clamp(1rem, 3vw, 2rem)' }}>
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
@@ -220,7 +220,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* ── Main content grid ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 380px', gap: '1.5rem' }}>
+      <div className="admin-dash-grid">
 
         {/* ── Subscriptions ── */}
         <Section title="Subscriptions" icon={CreditCard} accent="#34d399" action={<LinkBtn to="/admin/plans" label="Plans"/>}>

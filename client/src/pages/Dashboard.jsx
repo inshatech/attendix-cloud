@@ -433,7 +433,7 @@ export default function Dashboard() {
         </div>
 
         {/* Main grid */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 320px', gap:'1.25rem', alignItems:'start' }}>
+        <div className="dash-main-grid">
 
           {/* Organizations */}
           <SectionCard title="Organizations" icon={Building2} accent="var(--accent)"

@@ -1,10 +1,10 @@
 import { useEffect } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import {
   Fingerprint, LayoutDashboard, Building2, CreditCard, Wifi,
   Plug, Users, LogOut, User, Clock, UserCheck, Sun, Moon,
   CalendarCheck, CalendarDays, Shield, Ticket, Headphones, Receipt, Tag, PieChart, Info,
-  Heart,
+  Heart, X,
 } from 'lucide-react'
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
@@ -12,6 +12,7 @@ import { useAuth } from '../../store/auth'
 import { useTheme } from '../../store/theme'
 import { useNotifications } from '../../store/notifications'
 import { useBrand } from '../../store/brand'
+import { useSidebar } from '../../store/sidebar'
 import { cn } from '../../lib/utils'
 
 function NBadge({ count }) {
@@ -47,10 +48,11 @@ function NavItem({ to, icon: Icon, label, end = false, badge }) {
 
 function Brand({ icon: Icon, accent }) {
   const { logoUrl, appName, tagline, version, load } = useBrand()
+  const { close } = useSidebar()
   useEffect(() => { load() }, [])
   const ver = version || APP_VERSION
   return (
-    <div style={{ padding: '1rem 1.125rem', borderBottom: '1px solid var(--border)' }}>
+    <div style={{ padding: '1rem 1.125rem', borderBottom: '1px solid var(--border)', position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         {/* Logo */}
         <div style={{
@@ -80,6 +82,20 @@ function Brand({ icon: Icon, accent }) {
           </p>
         </div>
       </div>
+      {/* Close button — mobile only */}
+      <button
+        onClick={close}
+        className="md:hidden"
+        style={{
+          position: 'absolute', top: '50%', right: '1rem', transform: 'translateY(-50%)',
+          background: 'var(--bg-surface2)', border: '1px solid var(--border)',
+          borderRadius: 8, width: 30, height: 30,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', color: 'var(--text-muted)',
+        }}
+      >
+        <X size={15} />
+      </button>
     </div>
   )
 }
@@ -152,18 +168,13 @@ function Footer({ user, logout, roleLabel, accent }) {
   )
 }
 
-const sidebarStyle = {
-  width: 232, flexShrink: 0, display: 'flex', flexDirection: 'column',
-  height: '100vh', position: 'sticky', top: 0,
-  background: 'var(--bg-surface)', borderRight: '1px solid var(--border)',
-  transition: 'background 0.3s, border-color 0.3s',
-}
+// ── Sidebar content (no <aside> wrapper — handled by Sidebar export) ──────────
 
-function AdminSidebar({ user, logout }) {
-  const { openTickets, newUsers, newPayments, expiringPayments, start, stop } = useNotifications()
+function AdminSidebarContent({ user, logout }) {
+  const { openTickets, newUsers, newPayments, start, stop } = useNotifications()
   useEffect(() => { start('admin'); return () => stop() }, [])
   return (
-    <aside style={sidebarStyle}>
+    <>
       <Brand icon={Shield} accent="#c084fc" />
       <nav style={{ flex: 1, overflowY: 'auto', padding: '0.625rem', display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span className="section-label">Overview</span>
@@ -180,15 +191,15 @@ function AdminSidebar({ user, logout }) {
         <NavItem to="/admin/tickets" icon={Ticket} label="Tickets" badge={openTickets} />
       </nav>
       <Footer user={user} logout={logout} roleLabel="Administrator" accent="#c084fc" />
-    </aside>
+    </>
   )
 }
 
-function SupportSidebar({ user, logout }) {
+function SupportSidebarContent({ user, logout }) {
   const { openTickets, start, stop } = useNotifications()
   useEffect(() => { start('support'); return () => stop() }, [])
   return (
-    <aside style={sidebarStyle}>
+    <>
       <Brand icon={Headphones} accent="#22d3ee" />
       <nav style={{ flex: 1, overflowY: 'auto', padding: '0.625rem', display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span className="section-label">Overview</span>
@@ -199,15 +210,15 @@ function SupportSidebar({ user, logout }) {
         <NavItem to="/admin/tickets" icon={Ticket} label="Tickets" badge={openTickets} />
       </nav>
       <Footer user={user} logout={logout} roleLabel="Support Agent" accent="#22d3ee" />
-    </aside>
+    </>
   )
 }
 
-function UserSidebar({ user, logout }) {
+function UserSidebarContent({ user, logout }) {
   const { openTickets, start, stop } = useNotifications()
   useEffect(() => { start('user'); return () => stop() }, [])
   return (
-    <aside style={sidebarStyle}>
+    <>
       <Brand icon={Fingerprint} accent="#58a6ff" />
       <nav style={{ flex: 1, overflowY: 'auto', padding: '0.625rem', display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span className="section-label">Workspace</span>
@@ -227,13 +238,46 @@ function UserSidebar({ user, logout }) {
         <NavItem to="/tickets" icon={Ticket} label="Support" badge={openTickets} />
       </nav>
       <Footer user={user} logout={logout} roleLabel="User" accent="#58a6ff" />
-    </aside>
+    </>
   )
+}
+
+// ── Sidebar shell (handles mobile drawer + overlay) ───────────────────────────
+
+const sidebarStyle = {
+  width: 232, flexShrink: 0, display: 'flex', flexDirection: 'column',
+  height: '100vh', position: 'sticky', top: 0,
+  background: 'var(--bg-surface)', borderRight: '1px solid var(--border)',
+  transition: 'background 0.3s, border-color 0.3s',
 }
 
 export function Sidebar() {
   const { user, logout } = useAuth()
-  if (user?.role === 'admin') return <AdminSidebar user={user} logout={logout} />
-  if (user?.role === 'support') return <SupportSidebar user={user} logout={logout} />
-  return <UserSidebar user={user} logout={logout} />
+  const { isOpen, close } = useSidebar()
+  const loc = useLocation()
+
+  // Close sidebar whenever route changes (mobile nav tap)
+  useEffect(() => { close() }, [loc.pathname])
+
+  const Content = user?.role === 'admin'   ? AdminSidebarContent
+               : user?.role === 'support' ? SupportSidebarContent
+               : UserSidebarContent
+
+  return (
+    <>
+      {/* Overlay — visible on mobile when sidebar is open */}
+      <div
+        className={cn('sidebar-overlay', isOpen && 'sidebar-open')}
+        onClick={close}
+        aria-hidden="true"
+      />
+      {/* Sidebar panel */}
+      <aside
+        className={cn('sidebar-aside', isOpen && 'sidebar-open')}
+        style={sidebarStyle}
+      >
+        <Content user={user} logout={logout} />
+      </aside>
+    </>
+  )
 }

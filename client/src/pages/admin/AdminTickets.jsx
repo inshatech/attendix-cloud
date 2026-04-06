@@ -462,7 +462,7 @@ export default function AdminTickets() {
   const useKanban = !filterStatus && !filterPri && !q
 
   return (
-    <div style={{ padding:'2rem 2.5rem', maxWidth:1300, margin:'0 auto', display:'flex', flexDirection:'column', gap:'2rem' }}>
+    <div style={{ padding:'clamp(1rem, 4vw, 2.5rem)', maxWidth:1300, margin:'0 auto', display:'flex', flexDirection:'column', gap:'clamp(1rem, 3vw, 2rem)' }}>
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -521,7 +521,7 @@ export default function AdminTickets() {
 
       {/* Kanban or list */}
       {loading ? (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1rem' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))', gap:'1rem' }}>
           {[1,2,3,4].map(i => <div key={i} className="shimmer" style={{ height:200, borderRadius:10 }}/>)}
         </div>
       ) : useKanban ? (
