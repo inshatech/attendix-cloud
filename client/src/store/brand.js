@@ -64,10 +64,11 @@ export const useBrand = create((set, get) => ({
   version: '',
   loaded: false,
 
-  load: async () => {
-    if (get().loaded) return
+  load: async (force = false) => {
+    if (get().loaded && !force) return
     try {
-      const res = await fetch('/api/about')
+      const base = import.meta.env.VITE_API_URL || ''
+      const res = await fetch(`${base}/api/about`)
       if (!res.ok) return
       const { data } = await res.json()
       if (!data) return

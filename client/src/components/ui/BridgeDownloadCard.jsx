@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Download, Wifi, Monitor, Package, HardDrive, Sparkles } from 'lucide-react'
 
+const API_BASE = import.meta.env.VITE_API_URL || ''
+
 export default function BridgeDownloadCard() {
   const [info, setInfo]   = useState(null)  // null=loading, false=not configured, {...}=ready
   const [busy, setBusy]   = useState(false)
   const [done, setDone]   = useState(false)
 
   useEffect(() => {
-    fetch('/bridge-app/info')
+    fetch(`${API_BASE}/bridge-app/info`)
       .then(r => r.json())
       .then(d => setInfo(d.configured ? d : false))
       .catch(() => setInfo(false))

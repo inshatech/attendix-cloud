@@ -7,6 +7,7 @@ import { Input } from '../../components/ui/Input'
 import { Modal } from '../../components/ui/Modal'
 import { useToast } from '../../components/ui/Toast'
 import { useAuth } from '../../store/auth'
+import { useBrand } from '../../store/brand'
 import { cn } from '../../lib/utils'
 import api from '../../lib/api'
 
@@ -342,6 +343,7 @@ function FileUploader({ value, fileSizeMb, onUploaded, uploadPath }) {
 // ── About Us editor ───────────────────────────────────────────────────────────
 function AboutPluginCard({ plugin, onRefresh }) {
   const { toast } = useToast()
+  const { load: reloadBrand } = useBrand()
   const cfg = plugin?.config || {}
 
   const [saving, setSaving] = useState(false)
@@ -389,6 +391,7 @@ function AboutPluginCard({ plugin, onRefresh }) {
       })
       toast('About page saved', 'success')
       onRefresh()
+      reloadBrand(true)
     } catch(e) { toast(e.message, 'error') }
     finally { setSaving(false) }
   }
