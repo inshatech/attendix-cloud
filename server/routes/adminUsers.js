@@ -3,6 +3,7 @@ const express  = require('express');
 const router   = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const AuthUser = require('../models/AuthUser');
+const { UserSubscription, SubscriptionPlan } = require('../models/Subscription');
 const { requireAuth, requireRole } = require('../auth/middleware');
 const { hashPassword } = require('../auth/helpers');
 const { adminApiLimiter, strictAdminLimiter } = require('../auth/rateLimits');
@@ -130,6 +131,43 @@ router.delete('/users/:userId/sessions', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── ASSIGN SUBSCRIPTION TO USER ───────────────────────────────────────────────
+router.post('/users/:userId/assign-subscription', async (req, res) => {
+  try {
+    const { planId, durationDays = 30, notes = '', billingCycle = 'monthly', paidAmount = 0, paymentRef = '' } = req.body;
+    if (!planId) return res.status(400).json({ error: 'planId required' });
+
+    const user = await AuthUser.findOne({ userId: req.params.userId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const plan = await SubscriptionPlan.findOne({ planId }).lean();
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+    const startDate = new Date();
+    const endDate   = new Date(startDate.getTime() + durationDays * 24 * 3600 * 1000);
+    const status    = plan.isTrial ? 'trial' : 'active';
+
+    const sub = await UserSubscription.create({
+      subscriptionId: `sub-${uuidv4().split('-')[0]}`,
+      userId:         req.params.userId,
+      planId,
+      billingCycle:   plan.isTrial ? 'trial' : billingCycle,
+      startDate,
+      endDate,
+      trialEndsAt:    plan.isTrial ? endDate : null,
+      status,
+      paidAmount:     +paidAmount || 0,
+      paymentRef:     paymentRef || null,
+      notes:          notes || null,
+      assignedBy:     req.authUser.userId,
+      createdBy:      req.authUser.userId,
+      gateway:        'manual',
+    });
+
+    res.status(201).json({ status: 'success', data: sub });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── MODULE MANAGEMENT PER USER ────────────────────────────────────────────────
 router.get('/users/:userId/modules', async (req, res) => {
   try {
@@ -165,6 +203,141 @@ router.delete('/users/:userId/modules/:modName', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ── SUBSCRIPTION PLANS ────────────────────────────────────────────────────────
+router.get('/plans', async (req, res) => {
+  try {
+    const plans = await SubscriptionPlan.find({}).sort({ sortOrder: 1, createdAt: 1 }).lean();
+    res.json({ status: 'success', data: plans });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/plans', strictAdminLimiter, async (req, res) => {
+  try {
+    const { name, description, priceMonthly, priceYearly, maxBridges, maxDevices, maxEmployees,
+            retentionDays, trialDays, isTrial, features, icon, color, sortOrder } = req.body;
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const plan = await SubscriptionPlan.create({
+      planId: `plan-${uuidv4().split('-')[0]}`,
+      name, description, priceMonthly, priceYearly, maxBridges, maxDevices, maxEmployees,
+      retentionDays, trialDays, isTrial, features, icon, color, sortOrder,
+      createdBy: req.authUser.userId,
+    });
+    res.status(201).json({ status: 'success', data: plan });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.patch('/plans/:planId', async (req, res) => {
+  try {
+    const allowed = ['name','description','priceMonthly','priceYearly','maxBridges','maxDevices',
+                     'maxEmployees','retentionDays','trialDays','isTrial','isActive','features','icon','color','sortOrder'];
+    const update = {};
+    for (const k of allowed) if (req.body[k] !== undefined) update[k] = req.body[k];
+    const plan = await SubscriptionPlan.findOneAndUpdate({ planId: req.params.planId }, { $set: update }, { new: true });
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    res.json({ status: 'success', data: plan });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/plans/:planId', strictAdminLimiter, async (req, res) => {
+  try {
+    const active = await UserSubscription.countDocuments({ planId: req.params.planId, status: { $in: ['active','trial'] } });
+    if (active > 0) return res.status(400).json({ error: `Cannot delete — ${active} active subscription(s) use this plan` });
+    const plan = await SubscriptionPlan.findOneAndDelete({ planId: req.params.planId });
+    if (!plan) return res.status(404).json({ error: 'Plan not found' });
+    res.json({ status: 'success' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── SUBSCRIPTIONS ─────────────────────────────────────────────────────────────
+router.get('/subscriptions/events', async (req, res) => {
+  // Return recent subscription events (last 50 changes) — simple implementation
+  try {
+    const recent = await UserSubscription.find({}).sort({ updatedAt: -1 }).limit(50).lean();
+    const events = recent.map(s => ({
+      type: s.status === 'active' ? 'subscription_activated' : s.status === 'trial' ? 'trial_started' : s.status === 'expired' ? 'subscription_expired' : 'subscription_updated',
+      subscriptionId: s.subscriptionId, userId: s.userId, planId: s.planId,
+      status: s.status, createdAt: s.updatedAt || s.createdAt,
+    }));
+    res.json({ status: 'success', data: events });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/subscriptions', async (req, res) => {
+  try {
+    const { userId, status, page = 1, limit = 50 } = req.query;
+    const f = {};
+    if (userId) f.userId = userId;
+    if (status) f.status = status;
+    const [subs, total] = await Promise.all([
+      UserSubscription.find(f).sort({ createdAt: -1 }).skip((+page - 1) * +limit).limit(+limit).lean(),
+      UserSubscription.countDocuments(f),
+    ]);
+    res.json({ status: 'success', total, page: +page, data: subs });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.patch('/subscriptions/:subscriptionId', async (req, res) => {
+  try {
+    const allowed = ['planId','status','endDate','paidAmount','paymentRef','notes','gateway','transactionId','billingCycle'];
+    const update = {};
+    for (const k of allowed) if (req.body[k] !== undefined) update[k] = req.body[k];
+    if (update.endDate) update.endDate = new Date(update.endDate);
+    const sub = await UserSubscription.findOneAndUpdate({ subscriptionId: req.params.subscriptionId }, { $set: update }, { new: true });
+    if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+    res.json({ status: 'success', data: sub });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/subscriptions/:subscriptionId/extend', async (req, res) => {
+  try {
+    const { days, reason } = req.body;
+    if (!days || days < 1) return res.status(400).json({ error: 'days must be >= 1' });
+    const sub = await UserSubscription.findOne({ subscriptionId: req.params.subscriptionId });
+    if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+    const base    = sub.endDate > new Date() ? sub.endDate : new Date();
+    sub.endDate   = new Date(base.getTime() + days * 24 * 3600 * 1000);
+    if (sub.status === 'expired') sub.status = 'active';
+    if (reason) sub.notes = [sub.notes, `Extended ${days}d: ${reason}`].filter(Boolean).join(' | ');
+    await sub.save();
+    res.json({ status: 'success', data: sub });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/subscriptions/:subscriptionId/cancel', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const sub = await UserSubscription.findOneAndUpdate(
+      { subscriptionId: req.params.subscriptionId },
+      { $set: { status: 'cancelled', cancelledAt: new Date(), notes: reason || null } },
+      { new: true }
+    );
+    if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+    res.json({ status: 'success', data: sub });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/subscriptions/:subscriptionId/refund', async (req, res) => {
+  try {
+    const { refundAmount, refundNotes } = req.body;
+    if (!refundAmount) return res.status(400).json({ error: 'refundAmount required' });
+    const sub = await UserSubscription.findOneAndUpdate(
+      { subscriptionId: req.params.subscriptionId },
+      { $set: { refundedAt: new Date(), refundAmount: +refundAmount, refundNotes: refundNotes || null } },
+      { new: true }
+    );
+    if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+    res.json({ status: 'success', data: sub, refund: { status: 'processed', amount: +refundAmount } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.delete('/subscriptions/:subscriptionId', strictAdminLimiter, async (req, res) => {
+  try {
+    const sub = await UserSubscription.findOneAndDelete({ subscriptionId: req.params.subscriptionId });
+    if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+    res.json({ status: 'success' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ── ADMIN DASHBOARD STATS ─────────────────────────────────────────────────────
 router.get('/stats', requireAuth, requireRole('admin','support'), async (req, res) => {
