@@ -97,10 +97,9 @@ function buildMonthlyAttSheet(rangeData, dates) {
 
   const rows = rangeData.map((emp, i) => {
     const dayMap = {}; emp.days.forEach(d => { dayMap[d.date] = d })
-    const t = emp.totals
-    const pardoned   = emp.days.filter(d => d.pardonedLate).length
-    const hdAbsent   = emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
-    const lopDays    = (t.absent - hdAbsent) + (hdAbsent * 0.5)
+    const t        = emp.totals
+    const hdAbsent = t.halfDayWeekdayAbsent ?? emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
+    const lopDays  = (t.absent - hdAbsent) + (hdAbsent * 0.5) + (t.unpaidLeave || 0)
 
     const dayCells = dates.map(date => {
       const day = dayMap[date]
@@ -117,9 +116,9 @@ function buildMonthlyAttSheet(rangeData, dates) {
     return [
       i+1, emp.code||'', emp.name, emp.department||'', emp.shift?.name||'',
       ...dayCells,
-      t.present - pardoned, t.late, pardoned,
+      t.present - t.pardonedLate, t.late, t.pardonedLate,
       t.halfDay, t.absent - hdAbsent, hdAbsent,
-      t.weekOff, t.holiday, t.onLeave,
+      t.weekOff, t.holiday, t.paidLeave ?? t.onLeave,
       +lopDays.toFixed(1),
       +(t.workedMinutes/60).toFixed(2),
       +(t.overtimeMinutes/60).toFixed(2),
@@ -137,17 +136,16 @@ function buildAttSummarySheet(rangeData) {
     'LOP Days','Worked Hours','OT Hours','Attendance %',
   ]
   const rows = rangeData.map((emp, i) => {
-    const t = emp.totals
-    const pardoned  = emp.days.filter(d => d.pardonedLate).length
-    const hdAbsent  = emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
-    const lopDays   = (t.absent - hdAbsent) + (hdAbsent * 0.5)
+    const t        = emp.totals
+    const hdAbsent = t.halfDayWeekdayAbsent ?? emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
+    const lopDays  = (t.absent - hdAbsent) + (hdAbsent * 0.5) + (t.unpaidLeave || 0)
     const effectiveWork = t.present + t.late + (t.halfDay * 0.5)
     const totalWD = t.present + t.late + t.halfDay + t.absent
     const attPct = totalWD > 0 ? +((effectiveWork / totalWD) * 100).toFixed(1) : 0
     return [
       i+1, emp.code||'', emp.name, emp.department||'', emp.shift?.name||'',
-      t.present - pardoned, t.late, pardoned, t.halfDay,
-      t.absent - hdAbsent, hdAbsent, t.weekOff, t.holiday, t.onLeave,
+      t.present - t.pardonedLate, t.late, t.pardonedLate, t.halfDay,
+      t.absent - hdAbsent, hdAbsent, t.weekOff, t.holiday, t.paidLeave ?? t.onLeave,
       +lopDays.toFixed(1), +(t.workedMinutes/60).toFixed(2), +(t.overtimeMinutes/60).toFixed(2), attPct,
     ]
   })
@@ -327,11 +325,10 @@ function printReport(reportType, period, org, rangeRows, payrollRows) {
         </tr></thead>
         <tbody>
           ${rangeRows.map((emp, idx) => {
-            const dayMap = {}; emp.days.forEach(d => { dayMap[d.date] = d })
-            const t = emp.totals
-            const pardoned = emp.days.filter(d => d.pardonedLate).length
-            const hdAbs    = emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
-            const lopDays  = (t.absent - hdAbs) + (hdAbs * 0.5)
+            const dayMap  = {}; emp.days.forEach(d => { dayMap[d.date] = d })
+            const t       = emp.totals
+            const hdAbs   = t.halfDayWeekdayAbsent ?? emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
+            const lopDays = (t.absent - hdAbs) + (hdAbs * 0.5) + (t.unpaidLeave || 0)
             return `<tr class="${idx%2===0?'alt':''}">
               <td class="idx">${idx+1}</td>
               <td class="code">${emp.code||''}</td>
@@ -351,15 +348,15 @@ function printReport(reportType, period, org, rangeRows, payrollRows) {
                   ${day.outTime ? `<div class="time-row out">${day.outTime}</div>` : ''}
                 </td>`
               }).join('')}
-              <td class="sum">${t.present - pardoned}</td>
+              <td class="sum">${t.present - t.pardonedLate}</td>
               <td class="sum lo">${t.late}</td>
-              <td class="sum amber">${pardoned}</td>
+              <td class="sum amber">${t.pardonedLate}</td>
               <td class="sum">${t.halfDay}</td>
               <td class="sum red">${t.absent - hdAbs}</td>
               <td class="sum red">${hdAbs}</td>
               <td class="sum dim">${t.weekOff}</td>
               <td class="sum pink">${t.holiday}</td>
-              <td class="sum blue">${t.onLeave}</td>
+              <td class="sum blue">${t.paidLeave ?? t.onLeave}</td>
               <td class="sum red">${lopDays.toFixed(1)}</td>
               <td class="sum">${Math.floor(t.workedMinutes/60)}h</td>
               <td class="sum pu">${Math.floor(t.overtimeMinutes/60)}h</td>
@@ -375,17 +372,16 @@ function printReport(reportType, period, org, rangeRows, payrollRows) {
         <th>WO</th><th>Hol</th><th>Leave</th><th>LOP</th><th>Hours</th><th>OT Hrs</th><th>Att%</th>
       </tr></thead><tbody>
       ${rangeRows.map((emp,i) => {
-        const t = emp.totals
-        const pardoned = emp.days.filter(d => d.pardonedLate).length
-        const hdAbs    = emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
-        const lopDays  = (t.absent - hdAbs) + (hdAbs * 0.5)
-        const totalWD  = t.present + t.late + t.halfDay + t.absent
-        const attPct   = totalWD > 0 ? (((t.present + t.late + (t.halfDay * 0.5)) / totalWD) * 100).toFixed(1) : '0.0'
+        const t       = emp.totals
+        const hdAbs   = t.halfDayWeekdayAbsent ?? emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
+        const lopDays = (t.absent - hdAbs) + (hdAbs * 0.5) + (t.unpaidLeave || 0)
+        const totalWD = t.present + t.late + t.halfDay + t.absent
+        const attPct  = totalWD > 0 ? (((t.present + t.late + (t.halfDay * 0.5)) / totalWD) * 100).toFixed(1) : '0.0'
         return `<tr class="${i%2===0?'alt':''}">
           <td>${i+1}</td><td>${emp.code||''}</td><td>${emp.name}</td><td>${emp.department||'—'}</td>
-          <td>${t.present-pardoned}</td><td>${t.late}</td><td style="color:#d97706">${pardoned}</td>
+          <td>${t.present-t.pardonedLate}</td><td>${t.late}</td><td style="color:#d97706">${t.pardonedLate}</td>
           <td>${t.halfDay}</td><td style="color:#c0392b">${t.absent-hdAbs}</td><td style="color:#c0392b">${hdAbs}</td>
-          <td>${t.weekOff}</td><td style="color:#be185d">${t.holiday}</td><td style="color:#1d4ed8">${t.onLeave}</td>
+          <td>${t.weekOff}</td><td style="color:#be185d">${t.holiday}</td><td style="color:#1d4ed8">${t.paidLeave ?? t.onLeave}</td>
           <td style="color:#c0392b;font-weight:700">${lopDays.toFixed(1)}</td>
           <td>${Math.floor(t.workedMinutes/60)}h ${t.workedMinutes%60}m</td>
           <td style="color:#7c3aed">${Math.floor(t.overtimeMinutes/60)}h ${t.overtimeMinutes%60}m</td>
@@ -957,11 +953,10 @@ export default function Reports() {
                 </thead>
                 <tbody>
                   {filtered.map((emp, idx) => {
-                    const t       = emp.totals
-                    const pardoned  = emp.days.filter(d => d.pardonedLate).length
-                    const hdAbsent  = emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
-                    const lopDays   = (t.absent - hdAbsent) + (hdAbsent * 0.5)
-                    const isSel     = selected.has(emp.employeeId)
+                    const t        = emp.totals
+                    const hdAbsent = t.halfDayWeekdayAbsent ?? emp.days.filter(d => d.status === 'absent' && d.lopWeight === 0.5).length
+                    const lopDays  = (t.absent - hdAbsent) + (hdAbsent * 0.5) + (t.unpaidLeave || 0)
+                    const isSel    = selected.has(emp.employeeId)
                     return (
                       <motion.tr key={emp.employeeId} initial={{ opacity:0 }} animate={{ opacity:1 }}
                         className="tbl-row" style={{ cursor:'pointer', background: isSel ? 'color-mix(in srgb,var(--accent) 6%,transparent)' : undefined }}
@@ -991,15 +986,15 @@ export default function Reports() {
                           <div style={{ fontSize:'0.68rem', color:'var(--text-dim)', fontFamily:'monospace' }}>{emp.shift?.name||'—'}</div>
                         </td>
                         {[
-                          [t.present - pardoned, '#34d399'],
-                          [t.late,               '#fb923c'],
-                          [pardoned,             '#fbbf24'],
-                          [t.halfDay,            '#facc15'],
-                          [t.absent - hdAbsent,  '#f87171'],
-                          [hdAbsent,             '#fca5a5'],
-                          [t.weekOff,            'var(--text-muted)'],
-                          [t.holiday,            '#f472b6'],
-                          [t.onLeave,            '#60a5fa'],
+                          [t.present - t.pardonedLate, '#34d399'],
+                          [t.late,                     '#fb923c'],
+                          [t.pardonedLate,             '#fbbf24'],
+                          [t.halfDay,                  '#facc15'],
+                          [t.absent - hdAbsent,        '#f87171'],
+                          [hdAbsent,                   '#fca5a5'],
+                          [t.weekOff,                  'var(--text-muted)'],
+                          [t.holiday,                  '#f472b6'],
+                          [t.paidLeave ?? t.onLeave,   '#60a5fa'],
                         ].map(([val, color], ci) => (
                           <td key={ci} className="tbl-cell" style={{ textAlign:'center' }}>
                             <span style={{ fontFamily:'monospace', fontSize:'0.82rem', fontWeight:700,

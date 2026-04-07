@@ -537,7 +537,7 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
       const shift = emp.shiftId ? shiftMap[emp.shiftId] : null;
       const weeklyOff = emp.weeklyOffDays || shift?.weeklyOffDays || [0];
 
-      const totals = { present:0, late:0, pardonedLate:0, halfDay:0, absent:0, weekOff:0, holiday:0, onLeave:0, workedMinutes:0, lateMinutes:0, overtimeMinutes:0 };
+      const totals = { present:0, late:0, pardonedLate:0, halfDay:0, absent:0, halfDayWeekdayAbsent:0, weekOff:0, holiday:0, paidLeave:0, unpaidLeave:0, onLeave:0, workedMinutes:0, lateMinutes:0, overtimeMinutes:0 };
       const days   = [];
       // Running late count per calendar month (for monthly late allowance)
       const monthLateCount = { ...(preLatesByEmp[empId] || {}) };
@@ -558,7 +558,8 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
           else if (s === 'late')                                             totals.late++;
           else if (s === 'half-day')                                         totals.halfDay++;
           else if (s === 'absent')                                           totals.absent++;
-          else if (['on-leave','paid-leave','sick-leave','comp-off'].includes(s)) totals.onLeave++;
+          else if (['paid-leave','sick-leave','comp-off'].includes(s)) { totals.paidLeave++; totals.onLeave++; }
+          else if (s === 'on-leave')                                    { totals.unpaidLeave++; totals.onLeave++; }
           else if (s === 'holiday')                                          totals.holiday++;
           totals.workedMinutes += manual.workedMinutes || 0;
           days.push({ date, status: s, inTime: manual.inTime, outTime: manual.outTime, workedMinutes: manual.workedMinutes || 0, lateMinutes:0, overtimeMinutes:0, isManual:true, reason: manual.reason || null });
@@ -572,9 +573,10 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
             totals.holiday++;
             days.push({ date, status:'holiday', inTime:null, outTime:null, workedMinutes:0, lateMinutes:0, overtimeMinutes:0, holidayName: holidayMap.get(date) });
           } else {
-            const lw = lopWeight(shift, dow); // 0.5 for half-day weekday, 1.0 otherwise
-            totals.absent += lw;
-            days.push({ date, status:'absent', inTime:null, outTime:null, workedMinutes:0, lateMinutes:0, overtimeMinutes:0, lopWeight: lw });
+            const isHalfDayWeekday = !!getHalfDayEntry(shift, dow);
+            totals.absent++;
+            if (isHalfDayWeekday) totals.halfDayWeekdayAbsent++;
+            days.push({ date, status:'absent', inTime:null, outTime:null, workedMinutes:0, lateMinutes:0, overtimeMinutes:0, lopWeight: isHalfDayWeekday ? 0.5 : 1.0 });
           }
           continue;
         }
@@ -601,6 +603,7 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
         if      (status === 'present')  { totals.present++; if (isPardonedLate) totals.pardonedLate++; }
         else if (status === 'late')     totals.late++;
         else if (status === 'half-day') totals.halfDay++;
+        else if (status === 'absent')   { totals.absent++; if (getHalfDayEntry(shift, dow)) totals.halfDayWeekdayAbsent++; }
         const dayLate = computeLate(emp, shift, inTime, dow);
         const dayOT   = computeOT(shift, workedMinutes);
         totals.workedMinutes   += workedMinutes;
@@ -609,6 +612,7 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
 
         const dayEntry = { date, status, inTime, outTime, workedMinutes, lateMinutes: dayLate, overtimeMinutes: dayOT };
         if (isPardonedLate) dayEntry.pardonedLate = true;
+        if (status === 'absent') dayEntry.lopWeight = getHalfDayEntry(shift, dow) ? 0.5 : 1.0;
         days.push(dayEntry);
       }
 

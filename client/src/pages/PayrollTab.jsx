@@ -104,9 +104,9 @@ function PayrollRow({ rec, selected, onToggle }) {
         <td className="tbl-cell">
           <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
             {[
-              { v:at.present,      color:'#34d399', label:'P',  tip:'Present'                               },
-              { v:at.late,         color:'#fb923c', label:'L',  tip:'Late (charged)'                        },
-              { v:at.pardonedLate, color:'#fbbf24', label:'L*', tip:'Late but pardoned (monthly allowance)' },
+              { v:at.present - (at.pardonedLate||0), color:'#34d399', label:'P',  tip:'Present (on-time)'                    },
+              { v:at.late,                          color:'#fb923c', label:'L',  tip:'Late (charged)'                        },
+              { v:at.pardonedLate,                  color:'#fbbf24', label:'L*', tip:'Late but pardoned (monthly allowance)' },
               { v:at.halfDay,      color:'#facc15', label:'H',  tip:'Half Day'                              },
               { v:(at.absent||0) - (at.halfDayWeekdayAbsent||0), color:'#f87171', label:'A',   tip:'Absent — full day LOP'                  },
               { v:at.halfDayWeekdayAbsent, color:'#fca5a5', label:'A½', tip:'Absent on half-day weekday — 0.5 LOP' },
@@ -176,7 +176,7 @@ function PayrollRow({ rec, selected, onToggle }) {
                   <div>
                     <p style={{ fontSize:'0.7rem', fontFamily:'monospace', textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-dim)', fontWeight:700, marginBottom:10 }}>Attendance Detail</p>
                     {[
-                      { label:'Present',                 value:at.present,       color:'#34d399' },
+                      { label:'Present (on-time)',        value:at.present - (at.pardonedLate||0), color:'#34d399' },
                       { label:'Late (charged)',          value:at.late,          color:'#fb923c' },
                       { label:'Late* (pardoned)',        value:at.pardonedLate,  color:'#fbbf24', note:'Monthly allowance applied — counted as Present' },
                       { label:'Half Day',                value:at.halfDay,       color:'#facc15' },
@@ -276,7 +276,7 @@ function buildPayrollRegisterSheet(rows, period) {
   const data = rows.map((r,i) => [
     i+1, r.code, r.name, r.department||'', r.designation||'', r.salaryType, r.salary||0,
     r.payroll.workingDays, r.payroll.effectiveDays, r.payroll.lopDays,
-    r.attendance.present, r.attendance.late, r.attendance.pardonedLate||0, r.attendance.halfDay, r.attendance.absent,
+    r.attendance.present - (r.attendance.pardonedLate||0), r.attendance.late, r.attendance.pardonedLate||0, r.attendance.halfDay, r.attendance.absent,
     r.attendance.paidLeave, r.attendance.holiday, r.attendance.weekOff,
     +(r.attendance.workedMinutes/60).toFixed(2), +(r.attendance.overtimeMinutes/60).toFixed(2),
     r.payroll.grossPay, r.payroll.otAmount,
@@ -292,9 +292,9 @@ function buildAttSummarySheet(rows) {
   return [header, ...rows.map((r,i) => {
     const at = r.attendance
     const hdAbs = at.halfDayWeekdayAbsent || 0
-    const worked = r.payroll.workingDays > 0 ? +((( at.present+at.late+(at.pardonedLate||0)+(at.halfDay*.5)+at.paidLeave) / r.payroll.workingDays)*100).toFixed(1) : 0
+    const worked = r.payroll.workingDays > 0 ? +(((at.present+at.late+(at.halfDay*.5)+at.paidLeave) / r.payroll.workingDays)*100).toFixed(1) : 0
     return [i+1, r.code, r.name, r.department||'',
-      r.payroll.workingDays, at.present, at.late, at.pardonedLate||0, at.halfDay,
+      r.payroll.workingDays, at.present - (at.pardonedLate||0), at.late, at.pardonedLate||0, at.halfDay,
       at.absent - hdAbs, hdAbs, at.paidLeave, at.unpaidLeave, at.holiday, at.weekOff,
       +(at.workedMinutes/60).toFixed(2), +(at.overtimeMinutes/60).toFixed(2), worked]
   })]
@@ -451,7 +451,7 @@ function printReport(rows, reportType, period, org) {
       const att = r.attendance, wp = r.payroll
       const attPct = wp.workingDays > 0 ? +((( att.present+att.late+(att.halfDay*.5)+att.paidLeave) / wp.workingDays)*100).toFixed(1) : 0
       return `<tr ${i%2===0?'class="alt"':''}><td>${i+1}</td><td>${r.code||''}</td><td>${r.name}</td><td>${r.department||'—'}</td>
-        <td>${wp.workingDays}</td><td>${att.present}</td><td>${att.late}</td><td>${att.halfDay}</td>
+        <td>${wp.workingDays}</td><td>${att.present-(att.pardonedLate||0)}</td><td>${att.late}</td><td>${att.halfDay}</td>
         <td style="color:#c0392b">${att.absent}</td><td>${att.paidLeave}</td><td>${att.holiday}</td><td>${att.weekOff}</td>
         <td>${(att.workedMinutes/60).toFixed(1)}</td><td>${(att.overtimeMinutes/60).toFixed(1)}</td>
         <td>${attPct}%</td></tr>`
