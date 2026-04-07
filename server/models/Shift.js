@@ -99,6 +99,13 @@ const ShiftSchema = new mongoose.Schema({
   // ── Breaks ────────────────────────────────────────────────────────────────
   breaks:          { type: [BreakSchema], default: [] },
 
+  // ── Punch mode ────────────────────────────────────────────────────────────
+  // 2-punch   → first punch = in, last punch = out (device-agnostic, recommended)
+  // 4-punch   → P1=in, P2=break-out, P3=break-in, P4=out; net = (P2-P1)+(P4-P3)
+  //             Falls back to 2-punch when <4 punches on a day
+  // type-based → trust device punch-type field (0/4=in, 1/5=out)
+  punchMode: { type: String, enum: ['2-punch','4-punch','type-based'], default: '2-punch' },
+
   // ── Rules ─────────────────────────────────────────────────────────────────
   attendanceRules: { type: AttendanceRulesSchema, default: () => ({}) },
   overtimeRules:   { type: OvertimeRulesSchema,   default: () => ({}) },

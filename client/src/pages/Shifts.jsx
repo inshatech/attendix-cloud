@@ -16,12 +16,19 @@ import api from '../lib/api'
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
+const PUNCH_MODES = [
+  { value:'2-punch',    label:'2-Punch (Recommended)', desc:'First punch = In, Last punch = Out — works with any device' },
+  { value:'4-punch',    label:'4-Punch (Break tracking)', desc:'P1=In P2=BreakOut P3=BreakIn P4=Out — net time excludes break. Falls back to 2-punch if <4 punches' },
+  { value:'type-based', label:'Type-Based (Device punch type)', desc:'Trusts device punch-type field (In/Out). Only use if device is correctly configured' },
+]
+
 const EMPTY = {
   name:'', code:'', color:'#58a6ff', description:'', isActive:true, isDefault:false, isNightShift:false,
   defaultInTime:'09:00', defaultOutTime:'18:00',
   weeklyOffDays:[0],
   halfDayWeekDays:[],   // [{ day, inTime, outTime }]
   breaks:[{ label:'Lunch Break', startTime:'13:00', endTime:'14:00', isPaid:false }],
+  punchMode:'2-punch',
   attendanceRules:{
     graceLateMinutes:5, graceEarlyMinutes:5,
     halfDayAfterMinutes:120,
@@ -162,6 +169,10 @@ function ShiftCard({ shift, onEdit, onDelete }) {
             Late allow: {shift.attendanceRules.monthlyLateAllowance}/month
           </span>
         )}
+        <span style={{ fontSize:'0.8125rem', fontFamily:'monospace', gridColumn:'1/-1',
+          color: shift.punchMode==='4-punch' ? '#a78bfa' : shift.punchMode==='type-based' ? '#fb923c' : 'var(--text-dim)' }}>
+          Punch: {PUNCH_MODES.find(m=>m.value===(shift.punchMode||'2-punch'))?.label || '2-Punch'}
+        </span>
       </div>
 
       {shift.employeeCount != null && (
@@ -188,6 +199,7 @@ function ShiftModal({ open, onClose, initial, orgId, onSaved }) {
       ...EMPTY, ...initial,
       weeklyOffDays:   initial.weeklyOffDays   ?? EMPTY.weeklyOffDays,
       halfDayWeekDays: initial.halfDayWeekDays ?? EMPTY.halfDayWeekDays,
+      punchMode:       initial.punchMode       ?? EMPTY.punchMode,
       attendanceRules: { ...EMPTY.attendanceRules, ...(initial.attendanceRules||{}) },
       overtimeRules:   { ...EMPTY.overtimeRules,   ...(initial.overtimeRules||{}) },
     } : EMPTY)
@@ -289,6 +301,27 @@ function ShiftModal({ open, onClose, initial, orgId, onSaved }) {
                       : 'bg-accent/10 text-accent border-accent/20')}>
                   {d}
                 </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Punch mode */}
+          <div>
+            <label className="field-label">Punch Mode</label>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {PUNCH_MODES.map(m => (
+                <label key={m.value} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 12px', borderRadius:10,
+                  border:`1px solid ${form.punchMode===m.value ? 'var(--accent)' : 'var(--border)'}`,
+                  background: form.punchMode===m.value ? 'color-mix(in srgb,var(--accent) 8%,transparent)' : 'var(--bg-surface2)',
+                  cursor:'pointer', transition:'all .12s' }}>
+                  <input type="radio" name="punchMode" value={m.value} checked={form.punchMode===m.value}
+                    onChange={()=>sf('punchMode',m.value)}
+                    style={{ marginTop:2, accentColor:'var(--accent)', flexShrink:0 }}/>
+                  <div>
+                    <p style={{ fontSize:'0.8125rem', fontWeight:600, color: form.punchMode===m.value ? 'var(--accent)' : 'var(--text-primary)' }}>{m.label}</p>
+                    <p style={{ fontSize:'0.7rem', color:'var(--text-dim)', marginTop:1 }}>{m.desc}</p>
+                  </div>
+                </label>
               ))}
             </div>
           </div>
