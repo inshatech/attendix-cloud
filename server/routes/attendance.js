@@ -8,6 +8,7 @@ const { generalApiLimiter } = require('../auth/rateLimits');
 const Organization = require('../models/Organization');
 const Employee     = require('../models/Employee');
 const Shift        = require('../models/Shift');
+const LeavePolicy  = require('../models/LeavePolicy');
 
 // Lazy-load Holiday model (defined in holidays.js)
 function getHolidayModel() {
@@ -79,6 +80,17 @@ function toHHMM(date) {
 function getHalfDayEntry(shift, dayOfWeek) {
   if (dayOfWeek == null || !Array.isArray(shift?.halfDayWeekDays)) return null;
   return shift.halfDayWeekDays.find(h => h.day === dayOfWeek) || null;
+}
+
+// ── Helper — Professional Tax from org PT slabs ───────────────────────────────
+// slabs: [{ min, max, pt }] sorted ascending by min. First match wins.
+// max: null = no upper limit
+function calcPT(monthlyGross, slabs) {
+  if (!slabs || !slabs.length) return monthlyGross > 10000 ? 200 : 0;
+  for (const s of slabs) {
+    if (monthlyGross >= s.min && (s.max == null || monthlyGross <= s.max)) return s.pt;
+  }
+  return 0;
 }
 
 // ── Helper — LOP weight for a single absent day ───────────────────────────────
@@ -667,6 +679,9 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
       manualByEmpDate3[m.employeeId][m.date] = m;
     });
 
+    // Load org leave policy for PT slabs
+    const leavePolicy = await LeavePolicy.findOne({ orgId: req.params.orgId }).lean();
+
     // Standard Indian payroll: per-day rate = monthly_salary / 26
     const STANDARD_DAYS = 26;
 
@@ -814,7 +829,9 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
       const pfBasic   = Math.min(15000, monthlyGrossEquiv); // PF on max 15000 basic
       const pfAmount  = emp.pfNumber ? Math.round(pfBasic * 0.12) : 0;
       const esiAmount = emp.esiNumber && monthlyGrossEquiv <= 21000 ? Math.round(grossPay * 0.0075) : 0;
-      const ptAmount  = monthlyGrossEquiv > 10000 ? Math.round(200 * (dates.length / 26)) : 0; // pro-rated PT
+      // PT: employee override takes precedence over org slab
+      const monthlyPT = emp.ptOverride != null ? emp.ptOverride : calcPT(monthlyGrossEquiv, leavePolicy?.ptSlabs);
+      const ptAmount  = Math.round(monthlyPT * (dates.length / 26)); // pro-rated PT
 
       const totalDeductions = pfAmount + esiAmount + ptAmount;
       const netPay = Math.max(0, grossPay + otAmount - totalDeductions);
@@ -833,6 +850,8 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
         uanNumber:   emp.uanNumber || null,
         panNumber:   emp.panNumber || null,
         bankDetails: emp.bankDetails || {},
+        ptOverride:  emp.ptOverride ?? null,
+        leaveBalance: emp.leaveBalance || {},
         shift:       shiftDetail(shift),
         attendance:  att,
         payroll: {

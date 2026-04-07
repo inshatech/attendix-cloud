@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Building2, Cpu, Wifi, Calendar, Activity, Zap, RefreshCw,
   AlertTriangle, ArrowRight, Clock, CheckCircle2, Fingerprint,
-  Users, BarChart2, Shield, Plus, Sparkles, ChevronRight
+  Users, BarChart2, Shield, Plus, Sparkles, ChevronRight, CalendarDays
 } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { UserPage, UserAvatar } from '../components/ui/UserUI'
@@ -314,8 +314,9 @@ export default function Dashboard() {
   const [orgs,     setOrgs]     = useState([])
   const [sub,      setSub]      = useState(null)
   const [plan,     setPlan]     = useState(null)
-  const [load,     setLoad]     = useState(true)
-  const [empCount, setEmpCount] = useState(0)
+  const [load,         setLoad]         = useState(true)
+  const [empCount,     setEmpCount]     = useState(0)
+  const [leaveSummary, setLeaveSummary] = useState([])
 
   async function doLoad() {
     setLoad(true)
@@ -327,9 +328,12 @@ export default function Dashboard() {
       if (or.status === 'fulfilled') {
         const data = or.value.data || []
         setOrgs(data)
-        if (data.length)
+        if (data.length) {
           api.get(`/organizations/${data[0].orgId}/employees?limit=1`)
             .then(r => setEmpCount(r.total||0)).catch(()=>{})
+          api.get(`/organizations/${data[0].orgId}/leave-summary`)
+            .then(r => setLeaveSummary(r.data || [])).catch(()=>{})
+        }
       }
       if (sr.status === 'fulfilled' && sr.value.data) {
         setSub(sr.value.data.subscription)
@@ -518,6 +522,68 @@ export default function Dashboard() {
             <LiveFeed orgs={orgs}/>
           </SectionCard>
         </div>
+
+        {/* Leave Balance Summary */}
+        {leaveSummary.length > 0 && (() => {
+          const withBalance = leaveSummary.filter(e => {
+            const b = e.balance || {}
+            return Object.values(b).some(v => (v||0) > 0)
+          })
+          if (!withBalance.length) return null
+          const TYPES = ['casual','sick','earned','maternity','paternity','other']
+          return (
+            <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.4 }}
+              style={{ borderRadius:16, border:'1px solid var(--border)', background:'var(--bg-surface)', overflow:'hidden' }}>
+              <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <div style={{ width:32, height:32, borderRadius:9, background:'var(--accent-muted)', border:'1px solid var(--accent-border)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <CalendarDays size={15} style={{ color:'var(--accent)' }}/>
+                  </div>
+                  <div>
+                    <p style={{ fontSize:'0.875rem', fontWeight:700, color:'var(--text-primary)' }}>Leave Balances</p>
+                    <p style={{ fontSize:'0.75rem', color:'var(--text-muted)' }}>{withBalance.length} employee{withBalance.length!==1?'s':''} with pending leave</p>
+                  </div>
+                </div>
+                <Link to="/employees" style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.8125rem', fontWeight:600, color:'var(--accent)', textDecoration:'none' }}>
+                  All Employees <ArrowRight size={12}/>
+                </Link>
+              </div>
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th className="tbl-head" style={{ textAlign:'left', padding:'8px 18px', paddingRight:8 }}>Employee</th>
+                      {TYPES.map(t => <th key={t} className="tbl-head" style={{ padding:'8px 12px', textAlign:'center', textTransform:'capitalize', fontFamily:'monospace' }}>{t.substring(0,3)}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {withBalance.slice(0, 8).map((e, i) => (
+                      <tr key={e.employeeId} className="tbl-row" style={{ borderTop: i===0 ? 'none':'1px solid var(--tbl-border)' }}>
+                        <td className="tbl-cell" style={{ padding:'8px 18px', paddingRight:8 }}>
+                          <div style={{ display:'flex', flexDirection:'column', gap:1 }}>
+                            <span style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-primary)' }}>{e.name}</span>
+                            {e.department && <span style={{ fontSize:'0.6875rem', color:'var(--text-muted)', fontFamily:'monospace' }}>{e.department}</span>}
+                          </div>
+                        </td>
+                        {TYPES.map(t => {
+                          const v = e.balance?.[t] || 0
+                          return (
+                            <td key={t} className="tbl-cell" style={{ padding:'8px 12px', textAlign:'center' }}>
+                              <span style={{
+                                fontSize:'0.8125rem', fontWeight:700, fontFamily:'monospace',
+                                color: v > 10 ? '#22c55e' : v > 0 ? 'var(--accent)' : v < 0 ? '#ef4444' : 'var(--text-dim)',
+                              }}>{v || '—'}</span>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          )
+        })()}
       </>}
 
       <style>{`

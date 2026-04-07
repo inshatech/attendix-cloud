@@ -7,7 +7,7 @@ import {
   MapPin, Phone, Mail, RefreshCw, Link2, Power, PowerOff,
   Edit3, Info, Clock, Wifi, WifiOff, RotateCcw, Volume2, Image,
   Users, UserCheck, UserX, Fingerprint, Copy, CheckCircle2, Key, Globe, Shield,
-  Bell, Send, Trash, PlusCircle
+  Bell, Send, Trash, PlusCircle, CalendarDays
 } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { UserPage, UserStatCard, UserActionBtn } from '../components/ui/UserUI'
@@ -18,6 +18,7 @@ import { Empty } from '../components/ui/Empty'
 import { ConfirmModal } from '../components/ui/ConfirmModal'
 import { ImageUpload } from '../components/ui/ImageUpload'
 import { useToast } from '../components/ui/Toast'
+import LeavePolicyModal from '../components/ui/LeavePolicyModal'
 import { cn, fmtDate } from '../lib/utils'
 import api from '../lib/api'
 
@@ -868,6 +869,7 @@ function OrgCard({ org: init, onRefresh }) {
   const [showDelete, setShowDelete]   = useState(false)
   const [showReport, setShowReport]   = useState(false)
   const [showPunchNotify, setPunchNotify] = useState(false)
+  const [showLeavePolicy, setShowLeavePolicy] = useState(false)
   const [selectedDev, setSelectedDev] = useState(null)
   const [devForm, setDevForm] = useState({ ip:'', port:'4370', name:'', model:'', location:'' })
   const [editOrgForm, setEditOrgForm] = useState({})
@@ -1052,6 +1054,9 @@ function OrgCard({ org: init, onRefresh }) {
                   <Bell size={13}/> Report
                   {org.reportSchedule?.enabled && <span style={{ width:6, height:6, borderRadius:'50%', background:'#34d399', display:'inline-block', marginLeft:2 }}/>}
                 </Button>
+                <Button size="sm" variant="secondary" onClick={() => setShowLeavePolicy(true)}>
+                  <CalendarDays size={13}/> Leave Policy
+                </Button>
                 <Button size="sm" variant="secondary" onClick={togglePanel}><Cpu size={13}/> Machines {open?<ChevronUp size={12}/>:<ChevronDown size={12}/>}</Button>
               </div>
             )}
@@ -1101,6 +1106,7 @@ function OrgCard({ org: init, onRefresh }) {
 
       <PunchNotifyModal open={showPunchNotify} onClose={() => setPunchNotify(false)} orgId={org.orgId}/>
       <ReportScheduleModal open={showReport} onClose={() => setShowReport(false)} orgId={org.orgId}/>
+      <LeavePolicyModal open={showLeavePolicy} onClose={() => setShowLeavePolicy(false)} orgId={org.orgId}/>
 
       <Modal open={showEditOrg} onClose={() => setShowEditOrg(false)} title="Edit Organization" size="lg">
         <div className="grid grid-cols-2 gap-4">

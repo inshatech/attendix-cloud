@@ -168,6 +168,7 @@ var routeCoupons     = require('./routes/coupons');
 var routeEmployees   = require('./routes/employees');
 var routeDepartments = require('./routes/departments');
 var routeAttendance  = require('./routes/attendance');
+var routeLeaves      = require('./routes/leaves');
 
 // ── ABOUT PAGE (public — serves About Us content to frontend) ────────────────
 app.get('/api/about', async (req, res) => {
@@ -223,6 +224,7 @@ app.use('/',              routeHolidays);
 app.use('/',              routeCoupons);
 app.use('/',              routeEmployees);
 app.use('/',              routeAttendance);
+app.use('/',              routeLeaves.router);
 
 // ── STATIC (React SPA build) ──────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, '../dist')));

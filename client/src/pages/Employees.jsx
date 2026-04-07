@@ -4,7 +4,8 @@ import {
   Users, Plus, Search, Edit3, Trash2, RefreshCw, Eye,
   Mail, Phone, Briefcase, Building2, Clock, Bell,
   Cpu, Link2, Link2Off, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp,
-  UserCheck, UserX, UserMinus, Shield, Activity
+  UserCheck, UserX, UserMinus, Shield, Activity,
+  CalendarDays, TrendingUp, TrendingDown, Wallet, PlusCircle, MinusCircle
 } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -51,6 +52,7 @@ const EMPTY = {
   address:{ line1:'', line2:'', city:'', state:'', pincode:'', country:'India' },
   emergencyContact:{ name:'', relationship:'', phone:'' },
   leaveBalance:{ casual:0, sick:0, earned:0, maternity:0, paternity:0, other:0 },
+  ptOverride: '',   // '' = use org slab; number = employee-specific monthly PT
   guardianName:'', guardianRelation:'', guardianMobile:'', guardianEmail:'',
   notes:'',
 }
@@ -126,6 +128,7 @@ function EmployeeModal({ open, onClose, initial, orgId, shifts, depts, onSaved }
       address:          { ...EMPTY.address,          ...(initial.address          || {}) },
       emergencyContact: { ...EMPTY.emergencyContact, ...(initial.emergencyContact || {}) },
       leaveBalance:     { ...EMPTY.leaveBalance,     ...(initial.leaveBalance     || {}) },
+      ptOverride:       initial.ptOverride != null ? String(initial.ptOverride) : '',
       dateOfBirth:      initial.dateOfBirth?.split('T')[0]      || '',
       joiningDate:      initial.joiningDate?.split('T')[0]      || '',
       confirmationDate: initial.confirmationDate?.split('T')[0] || '',
@@ -145,12 +148,19 @@ function EmployeeModal({ open, onClose, initial, orgId, shifts, depts, onSaved }
     if (!form.firstName.trim()) return toast('First name is required', 'error')
     setBusy(true)
     try {
+      // Normalize ptOverride: '' → null, number string → number
+      const body = {
+        ...form,
+        ptOverride: form.ptOverride !== '' && form.ptOverride != null
+          ? Number(form.ptOverride)
+          : null,
+      }
       let emp
       if (initial?.employeeId) {
-        const r = await api.patch(`/organizations/${orgId}/employees/${initial.employeeId}`, form)
+        const r = await api.patch(`/organizations/${orgId}/employees/${initial.employeeId}`, body)
         emp = r.data
       } else {
-        const r = await api.post(`/organizations/${orgId}/employees`, form)
+        const r = await api.post(`/organizations/${orgId}/employees`, body)
         emp = r.data
       }
       if (photo) {
@@ -436,13 +446,21 @@ function EmployeeModal({ open, onClose, initial, orgId, shifts, depts, onSaved }
 
         {/* LEAVE */}
         {tab === 'leave' && <>
-          <p style={{ fontSize:"0.75rem", color:"var(--text-muted)", fontFamily:"monospace" }}>Annual leave entitlements (days per year)</p>
+          <p style={{ fontSize:"0.75rem", color:"var(--text-muted)", fontFamily:"monospace" }}>
+            Opening leave balance (days) — set before app use. Annual credits are added separately via the Leave Ledger.
+          </p>
           <div className="grid grid-cols-3 gap-3">
             {Object.keys(EMPTY.leaveBalance).map(k=>(
               <Input key={k} label={k.charAt(0).toUpperCase()+k.slice(1)+' Leave'} type="number"
                 value={form.leaveBalance[k]} onChange={e=>sflb(k,e.target.value)} placeholder="0"/>
             ))}
           </div>
+          <p className="field-label mt-2" style={{ marginBottom:4 }}>Professional Tax (PT)</p>
+          <p style={{ fontSize:"0.72rem", color:"var(--text-muted)", marginBottom:8 }}>
+            Leave blank to use organization PT slab. Set a fixed monthly amount (₹) to override for this employee.
+          </p>
+          <Input label="Monthly PT Override (₹)" type="number" placeholder="e.g. 200 — blank = use org slab"
+            value={form.ptOverride} onChange={e=>sf('ptOverride', e.target.value)}/>
         </>}
 
         {/* ADDRESS */}
@@ -484,16 +502,21 @@ function EmployeeModal({ open, onClose, initial, orgId, shifts, depts, onSaved }
 
 // ── Employee detail + machine link modal ───────────────────────────────────────
 function DetailModal({ open, onClose, emp, orgId, onRefresh }) {
-  const [detail,   setDetail]   = useState(null)
-  const [muList,   setMuList]   = useState([])
-  const [loading,  setLoad]     = useState(false)
-  const [linkBusy, setLinkBusy] = useState(false)
-  const [tab,      setTab]      = useState('machines')
+  const [detail,     setDetail]     = useState(null)
+  const [muList,     setMuList]     = useState([])
+  const [loading,    setLoad]       = useState(false)
+  const [linkBusy,   setLinkBusy]   = useState(false)
+  const [tab,        setTab]        = useState('machines')
+  const [leaveBal,   setLeaveBal]   = useState(null)
+  const [leaveTxns,  setLeaveTxns]  = useState([])
+  const [leaveLoad,  setLeaveLoad]  = useState(false)
+  const [txnForm,    setTxnForm]    = useState({ leaveType:'casual', txnType:'credit', days:'', date: new Date().toISOString().split('T')[0], notes:'' })
+  const [txnBusy,    setTxnBusy]   = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
     if (!open || !emp) return
-    setTab('machines'); loadAll()
+    setTab('machines'); loadAll(); loadLeaves()
   }, [open, emp])
 
   async function loadAll() {
@@ -538,6 +561,40 @@ function DetailModal({ open, onClose, emp, orgId, onRefresh }) {
     finally { setLoad(false) }
   }
 
+  async function loadLeaves() {
+    if (!emp?.employeeId || !orgId) return
+    setLeaveLoad(true)
+    try {
+      const r = await api.get(`/organizations/${orgId}/employees/${emp.employeeId}/leave-balance`)
+      setLeaveBal(r.data?.balance || null)
+      setLeaveTxns(r.data?.transactions || [])
+    } catch { /* silently fail */ }
+    finally { setLeaveLoad(false) }
+  }
+
+  async function addTxn() {
+    if (!txnForm.days || !txnForm.date) return toast('Days and date are required', 'error')
+    setTxnBusy(true)
+    try {
+      await api.post(`/organizations/${orgId}/employees/${emp.employeeId}/leave-transactions`, {
+        ...txnForm,
+        days: txnForm.txnType === 'debit' ? -Math.abs(Number(txnForm.days)) : Math.abs(Number(txnForm.days)),
+      })
+      toast('Transaction added', 'success')
+      setTxnForm(f => ({ ...f, days: '', notes: '' }))
+      loadLeaves()
+    } catch (e) { toast(e.message, 'error') }
+    finally { setTxnBusy(false) }
+  }
+
+  async function deleteTxn(txnId) {
+    try {
+      await api.delete(`/organizations/${orgId}/leave-transactions/${txnId}`)
+      toast('Transaction removed', 'success')
+      loadLeaves()
+    } catch (e) { toast(e.message, 'error') }
+  }
+
   async function link(mu) {
     setLinkBusy(true)
     try {
@@ -568,16 +625,20 @@ function DetailModal({ open, onClose, emp, orgId, onRefresh }) {
       title={emp ? (emp.displayName || `${emp.firstName} ${emp.lastName||''}`.trim()) : ''}
       description={emp?.employeeCode || emp?.employeeId} size="lg">
 
-      <div style={{ display:"flex", gap:4, borderBottom:"1px solid var(--border)", marginTop:-8 }}>
-        {['machines','details'].map(t => (
-          <button key={t} onClick={() => setTab(t)}
+      <div style={{ display:"flex", gap:4, borderBottom:"1px solid var(--border)", marginTop:-8, overflowX:'auto' }}>
+        {[
+          { key:'machines', label:`Biometric (${linked.length})` },
+          { key:'details',  label:'Details' },
+          { key:'leaves',   label:'Leave Ledger' },
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
             style={{
-              padding:'8px 16px', fontSize:'0.75rem', fontFamily:'monospace', fontWeight:600,
-              textTransform:'capitalize', borderBottom:`2px solid ${tab===t?'var(--accent)':'transparent'}`,
-              color: tab===t ? 'var(--accent)' : 'var(--text-muted)',
-              background:'transparent', cursor:'pointer', transition:'all .15s',
+              padding:'8px 14px', fontSize:'0.75rem', fontFamily:'monospace', fontWeight:600,
+              textTransform:'capitalize', borderBottom:`2px solid ${tab===t.key?'var(--accent)':'transparent'}`,
+              color: tab===t.key ? 'var(--accent)' : 'var(--text-muted)',
+              background:'transparent', cursor:'pointer', transition:'all .15s', whiteSpace:'nowrap',
             }}>
-            {t === 'machines' ? `Biometric Machines (${linked.length})` : 'Details'}
+            {t.label}
           </button>
         ))}
       </div>
@@ -643,6 +704,91 @@ function DetailModal({ open, onClose, emp, orgId, onRefresh }) {
                     <Button size="sm" variant="secondary" onClick={() => link(m)} loading={linkBusy}>
                       <Link2 size={11}/> Link
                     </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : tab === 'leaves' ? (
+        /* Leave Ledger tab */
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          {/* Balance chips */}
+          <div>
+            <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Current Balance</p>
+            {leaveLoad ? (
+              <div style={{ display:'flex', gap:8 }}>{[1,2,3,4,5,6].map(i=><div key={i} className="shimmer" style={{ width:70, height:52, borderRadius:8 }}/>)}</div>
+            ) : (
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                {['casual','sick','earned','maternity','paternity','other'].map(k => (
+                  <div key={k} style={{ background:'var(--bg-surface2)', border:'1px solid var(--border)', borderRadius:10, padding:'8px 14px', textAlign:'center', minWidth:66 }}>
+                    <p style={{ color: (leaveBal?.[k]||0) > 0 ? 'var(--accent)' : (leaveBal?.[k]||0) < 0 ? '#ef4444' : 'var(--text-dim)', fontWeight:700, fontFamily:'monospace', fontSize:'1.1rem' }}>{leaveBal?.[k] ?? 0}</p>
+                    <p style={{ fontSize:'0.5625rem', color:'var(--text-muted)', textTransform:'capitalize', marginTop:1 }}>{k}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Add Transaction form */}
+          <div style={{ padding:12, borderRadius:12, border:'1px solid var(--border)', background:'var(--bg-surface2)' }}>
+            <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10 }}>Add Transaction</p>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+              <div>
+                <label className="field-label">Leave Type</label>
+                <select className="field-input" value={txnForm.leaveType} onChange={e=>setTxnForm(f=>({...f,leaveType:e.target.value}))}>
+                  {['casual','sick','earned','maternity','paternity','other'].map(t=><option key={t} value={t} style={{textTransform:'capitalize'}}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Transaction Type</label>
+                <select className="field-input" value={txnForm.txnType} onChange={e=>setTxnForm(f=>({...f,txnType:e.target.value}))}>
+                  <option value="opening">Opening Balance</option>
+                  <option value="credit">Credit (Add)</option>
+                  <option value="debit">Debit (Deduct)</option>
+                  <option value="carryforward">Carry Forward</option>
+                  <option value="adjustment">Adjustment</option>
+                </select>
+              </div>
+              <Input label="Days" type="number" placeholder="e.g. 5" value={txnForm.days} onChange={e=>setTxnForm(f=>({...f,days:e.target.value}))}/>
+              <Input label="Effective Date" type="date" value={txnForm.date} onChange={e=>setTxnForm(f=>({...f,date:e.target.value}))}/>
+            </div>
+            <Input label="Notes (optional)" placeholder="Annual credit, Leave taken for…" value={txnForm.notes} onChange={e=>setTxnForm(f=>({...f,notes:e.target.value}))}/>
+            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:8 }}>
+              <Button size="sm" onClick={addTxn} loading={txnBusy}>
+                <PlusCircle size={12}/> Add Transaction
+              </Button>
+            </div>
+          </div>
+
+          {/* Transaction history */}
+          <div>
+            <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>
+              History ({leaveTxns.length})
+            </p>
+            {leaveTxns.length === 0 ? (
+              <p style={{ fontSize:'0.75rem', color:'var(--text-dim)', textAlign:'center', padding:'20px 0', fontFamily:'monospace' }}>No transactions yet</p>
+            ) : (
+              <div style={{ maxHeight:'12rem', overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
+                {leaveTxns.map(t => (
+                  <div key={t.txnId} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, background:'var(--bg-surface2)', border:'1px solid var(--border)' }}>
+                    <div style={{ width:26, height:26, borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+                      background: t.days > 0 ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.1)',
+                      border: t.days > 0 ? '1px solid rgba(34,197,94,.25)' : '1px solid rgba(239,68,68,.2)' }}>
+                      {t.days > 0 ? <TrendingUp size={12} style={{ color:'#22c55e' }}/> : <TrendingDown size={12} style={{ color:'#ef4444' }}/>}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <p style={{ fontSize:'0.75rem', fontWeight:600, color:'var(--text-primary)', display:'flex', gap:6, alignItems:'center' }}>
+                        <span style={{ textTransform:'capitalize', color: t.days > 0 ? '#22c55e' : '#ef4444' }}>{t.days > 0 ? '+' : ''}{t.days}d</span>
+                        <span style={{ color:'var(--text-muted)', fontFamily:'monospace', fontSize:'0.7rem' }}>{t.leaveType} · {t.txnType}</span>
+                      </p>
+                      <p style={{ fontSize:'0.6875rem', color:'var(--text-dim)', fontFamily:'monospace' }}>{t.date}{t.notes ? ` · ${t.notes}` : ''}</p>
+                    </div>
+                    <button onClick={() => deleteTxn(t.txnId)}
+                      style={{ color:'var(--text-dim)', background:'none', border:'none', cursor:'pointer', padding:4, borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center' }}
+                      title="Remove transaction">
+                      <Trash2 size={12}/>
+                    </button>
                   </div>
                 ))}
               </div>
@@ -1271,6 +1417,30 @@ function EmpRow({ emp, onEdit, onDelete, onView }) {
         )}
       </td>
       <td className="tbl-cell">
+        {/* Show casual + sick + earned as compact chips */}
+        {emp.leaveBalance && Object.values(emp.leaveBalance).some(v => v > 0) ? (
+          <div style={{ display:'flex', gap:3, flexWrap:'wrap' }}>
+            {[['casual','CL'],['sick','SL'],['earned','EL'],['maternity','ML'],['paternity','PL'],['other','OL']].map(([k,abbr]) => {
+              const v = emp.leaveBalance?.[k] || 0
+              if (!v) return null
+              return (
+                <span key={k} title={`${k}: ${v} days`} style={{
+                  fontSize:'0.625rem', fontFamily:'monospace', fontWeight:700,
+                  padding:'2px 5px', borderRadius:5,
+                  background: v > 10 ? 'rgba(34,197,94,.12)' : 'rgba(88,166,255,.1)',
+                  color: v > 10 ? '#22c55e' : 'var(--accent)',
+                  border: v > 10 ? '1px solid rgba(34,197,94,.2)' : '1px solid rgba(88,166,255,.2)',
+                }}>
+                  {abbr}{v}
+                </span>
+              )
+            })}
+          </div>
+        ) : (
+          <span style={{ fontSize:'0.6875rem', color:'var(--text-dim)', fontFamily:'monospace' }}>—</span>
+        )}
+      </td>
+      <td className="tbl-cell">
         <Badge variant={STATUS_CLR[emp.status]||'gray'} dot className="capitalize">{emp.status}</Badge>
       </td>
       <td className="tbl-cell">
@@ -1462,6 +1632,7 @@ export default function Employees() {
               <th className="tbl-head">Shift</th>
               <th className="tbl-head">Biometric</th>
               <th className="tbl-head">Last Punch</th>
+              <th className="tbl-head" title="CL/SL/EL/etc.">Leave Balance</th>
               <th className="tbl-head">Status</th>
               <th className="tbl-head">Actions</th>
             </tr>

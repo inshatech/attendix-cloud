@@ -52,10 +52,13 @@ function UserDetailModal({ open, onClose, user, plans, onRefresh }) {
   const [tab,        setTab]        = useState('overview')
   const [subForm,    setSubForm]    = useState({ planId:'', durationDays:30, notes:'' })
   const [busy,       setBusy]       = useState(false)
+  const [editForm,   setEditForm]   = useState({ name:'', email:'', mobile:'', role:'' })
+  const [editBusy,   setEditBusy]   = useState(false)
 
   useEffect(() => {
     if (!open || !user) return
     setTab('overview'); setSubForm({ planId: plans[0]?.planId||'', durationDays:30, notes:'' })
+    setEditForm({ name: user.name||'', email: user.email||'', mobile: user.mobile||'', role: user.role||'user' })
     setSubHistory([]); setLoad(true)
     // Fetch user detail first — always
     api.get(`/admin/users/${user.userId}`)
@@ -85,6 +88,23 @@ function UserDetailModal({ open, onClose, user, plans, onRefresh }) {
       const r = await api.get(`/admin/users/${user.userId}`); setDetail(r.data)
     } catch(e) { toast(e.message,'error') }
     finally { setBusy(false) }
+  }
+
+  async function saveEdit() {
+    setEditBusy(true)
+    try {
+      const body = {}
+      if (editForm.name.trim()   && editForm.name.trim()   !== user.name)   body.name   = editForm.name.trim()
+      if (editForm.email.trim()  && editForm.email.trim()  !== user.email)  body.email  = editForm.email.trim()
+      if (editForm.mobile.trim() && editForm.mobile.trim() !== user.mobile) body.mobile = editForm.mobile.trim()
+      if (editForm.role          && editForm.role           !== user.role)   body.role   = editForm.role
+      if (!Object.keys(body).length) return toast('No changes made', 'error')
+      await api.patch(`/admin/users/${user.userId}`, body)
+      toast('User updated', 'success')
+      onRefresh()
+      onClose()
+    } catch(e) { toast(e.message, 'error') }
+    finally { setEditBusy(false) }
   }
 
   if (!user) return null
@@ -130,7 +150,7 @@ function UserDetailModal({ open, onClose, user, plans, onRefresh }) {
 
       {/* Sticky tabs */}
       <div style={{ position:'sticky', top:0, zIndex:10, background:'var(--bg-elevated)', flexShrink:0 }}>
-        <FilterTabs tabs={[{id:'overview',label:'Overview'},{id:'subscription',label:'Subscription'},{id:'sessions',label:'Sessions'}]} active={tab} onChange={setTab}/>
+        <FilterTabs tabs={[{id:'overview',label:'Overview'},{id:'edit',label:'Edit'},{id:'subscription',label:'Subscription'},{id:'sessions',label:'Sessions'}]} active={tab} onChange={setTab}/>
       </div>
 
       {/* Scrollable content */}
@@ -153,6 +173,30 @@ function UserDetailModal({ open, onClose, user, plans, onRefresh }) {
                   <p style={{ fontSize:'1.0625rem', fontWeight:600, color: item.color || (item.mono ? 'var(--text-muted)' : 'var(--text-primary)'), fontFamily: item.mono ? 'monospace' : 'inherit', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.3 }}>{item.value}</p>
                 </div>
               ))}
+            </div>
+          )}
+
+          {tab === 'edit' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              <Input label="Full Name" value={editForm.name} onChange={e => setEditForm(f=>({...f, name:e.target.value}))} placeholder="Full name" icon={User}/>
+              <Input label="Email Address" value={editForm.email} onChange={e => setEditForm(f=>({...f, email:e.target.value}))} placeholder="email@example.com" type="email" icon={Mail}/>
+              <Input label="Mobile" value={editForm.mobile} onChange={e => setEditForm(f=>({...f, mobile:e.target.value}))} placeholder="+91 98765 43210" icon={Phone}/>
+              <div>
+                <label style={{ display:'block', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-muted)', marginBottom:7, textTransform:'uppercase', letterSpacing:'0.06em' }}>Role</label>
+                <div style={{ display:'flex', gap:8 }}>
+                  {['user','support','admin'].map(r => (
+                    <button key={r} onClick={() => setEditForm(f=>({...f, role:r}))}
+                      style={{ flex:1, padding:'10px 12px', borderRadius:10, cursor:'pointer', fontWeight:700, fontSize:'0.875rem', textTransform:'capitalize', transition:'all .15s',
+                        background: editForm.role===r ? `${ROLE_ACCENT[r]}18` : 'var(--bg-surface2)',
+                        border: `2px solid ${editForm.role===r ? ROLE_ACCENT[r] : 'var(--border)'}`,
+                        color: editForm.role===r ? ROLE_ACCENT[r] : 'var(--text-muted)',
+                      }}>{r}</button>
+                  ))}
+                </div>
+              </div>
+              <Button onClick={saveEdit} loading={editBusy} style={{ width:'100%', marginTop:4 }}>
+                Save Changes
+              </Button>
             </div>
           )}
 

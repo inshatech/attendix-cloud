@@ -116,6 +116,10 @@ const EmployeeSchema = new mongoose.Schema({
   // ── Leave entitlement ─────────────────────────────────────────────────────
   leaveBalance:   { type: LeaveBalanceSchema, default: () => ({}) },
 
+  // Professional Tax override — if set (non-null), this monthly PT amount is used
+  // instead of the org-level slab. Set null to use org slab.
+  ptOverride:     { type: Number, default: null },
+
   // ── Biometric machine link ────────────────────────────────────────────────
   // MachineUser documents reference this employeeId as their userId field
   // Extra metadata from machine enrollment stored here for convenience
