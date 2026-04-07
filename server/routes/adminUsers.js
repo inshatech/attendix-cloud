@@ -36,7 +36,26 @@ router.get('/users', async (req, res) => {
       AuthUser.find(f).select(SAFE + ' -refreshTokens').sort({ createdAt: -1 }).skip((+page - 1) * +limit).limit(+limit).lean(),
       AuthUser.countDocuments(f),
     ]);
-    res.json({ status: 'success', total, page: +page, data: users });
+    // Attach latest subscription and org count per user
+    const userIds = users.map(u => u.userId);
+    const Organization = require('../models/Organization');
+    const [subs, orgCounts] = await Promise.all([
+      UserSubscription.find({ userId: { $in: userIds } }).sort({ createdAt: -1 }).lean(),
+      Organization.aggregate([
+        { $match: { ownerId: { $in: userIds } } },
+        { $group: { _id: '$ownerId', count: { $sum: 1 } } },
+      ]).catch(() => []),
+    ]);
+    const subMap = {};
+    const priority = { active: 3, trial: 2, cancelled: 1, expired: 0 };
+    subs.forEach(s => {
+      if (!subMap[s.userId]) { subMap[s.userId] = s; return; }
+      if ((priority[s.status] || 0) > (priority[subMap[s.userId].status] || 0)) subMap[s.userId] = s;
+    });
+    const orgCountMap = {};
+    orgCounts.forEach(o => { orgCountMap[o._id] = o.count; });
+    const data = users.map(u => ({ ...u, subscription: subMap[u.userId] || null, orgCount: orgCountMap[u.userId] || 0 }));
+    res.json({ status: 'success', total, page: +page, data });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -70,7 +89,15 @@ router.get('/users/:userId', async (req, res) => {
     if (!u) return res.status(404).json({ error: 'User not found' });
     const sessions = (u.refreshTokens || []).map(t => ({ device: t.device, createdAt: t.createdAt, expiresAt: t.expiresAt }));
     delete u.refreshTokens;
-    res.json({ status: 'success', data: { ...u, sessions } });
+    // Attach best active subscription and org count
+    const Organization = require('../models/Organization');
+    const [subs, orgCount] = await Promise.all([
+      UserSubscription.find({ userId: req.params.userId }).sort({ createdAt: -1 }).lean(),
+      Organization.countDocuments({ ownerId: req.params.userId }).catch(() => 0),
+    ]);
+    const priority = { active: 3, trial: 2, cancelled: 1, expired: 0 };
+    const subscription = subs.sort((a, b) => (priority[b.status] || 0) - (priority[a.status] || 0))[0] || null;
+    res.json({ status: 'success', data: { ...u, sessions, subscription, orgCount } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -142,6 +169,12 @@ router.post('/users/:userId/assign-subscription', async (req, res) => {
 
     const plan = await SubscriptionPlan.findOne({ planId }).lean();
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+    // Cancel any existing active/trial subscriptions before assigning new one
+    await UserSubscription.updateMany(
+      { userId: req.params.userId, status: { $in: ['active', 'trial'] } },
+      { $set: { status: 'cancelled', cancelledAt: new Date(), notes: `Replaced by admin ${req.authUser.userId}` } }
+    );
 
     const startDate = new Date();
     const endDate   = new Date(startDate.getTime() + durationDays * 24 * 3600 * 1000);
