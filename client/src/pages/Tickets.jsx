@@ -12,7 +12,10 @@ import { useAuth } from '../store/auth'
 import { useOrgContext } from '../store/context'
 import { useToast } from '../components/ui/Toast'
 import { UserPage, UserPageHeader, UserStatCard, UserAvatar } from '../components/ui/UserUI'
+import Pagination from '../components/ui/Pagination'
 import api from '../lib/api'
+
+const TICKET_PAGE_SIZE = 15
 
 const STATUS_META = {
   'open':        { color:'#3b82f6', bg:'rgba(59,130,246,.1)',  border:'rgba(59,130,246,.25)',  label:'Open'        },
@@ -303,6 +306,8 @@ export default function Tickets() {
   const [newModal, setNew]     = useState(false)
   const [detailId, setDetail]  = useState(null)
   const [filter,   setFilter]  = useState('')
+  const [page,     setPage]    = useState(1)
+  const [limit,    setLimit]   = useState(5)
 
   async function load() {
     setLoad(true)
@@ -342,6 +347,9 @@ export default function Tickets() {
         : t.status === filter)
     : tickets
 
+  const ticketPages = Math.ceil(displayed.length / limit)
+  const paginated   = displayed.slice((page - 1) * limit, page * limit)
+
   return (
     <UserPage>
       <UserPageHeader title="Support" icon={Ticket} iconColor="#58a6ff"
@@ -365,7 +373,7 @@ export default function Tickets() {
           const count = counts[f.id] ?? 0
           const active = filter === f.id
           return (
-            <button key={f.id} onClick={() => setFilter(f.id)}
+            <button key={f.id} onClick={() => { setFilter(f.id); setPage(1) }}
               style={{ display:'flex', alignItems:'center', gap:7, padding:'10px 16px',
                 fontSize:'0.8125rem', fontFamily:'monospace', fontWeight:600, whiteSpace:'nowrap',
                 background:'transparent', cursor:'pointer',
@@ -402,7 +410,7 @@ export default function Tickets() {
         </div>
       ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {displayed.map((t, i) => {
+          {paginated.map((t, i) => {
             const sm = STATUS_META[t.status] || STATUS_META.open
             const hasReplies = (t.messages?.filter(m => m.authorRole !== 'user').length || 0) > 0
             return (
@@ -454,6 +462,9 @@ export default function Tickets() {
           })}
         </div>
       )}
+
+      <Pagination page={page} pages={ticketPages} onPage={setPage} total={displayed.length} limit={limit}
+        onLimit={n => { setLimit(n); setPage(1) }}/>
 
       <NewTicketModal open={newModal} onClose={() => setNew(false)} orgId={orgId} onCreated={load}/>
       <TicketDetailModal open={!!detailId} onClose={() => setDetail(null)} ticketId={detailId} onUpdated={load}/>

@@ -12,8 +12,11 @@ import { Empty }               from '../components/ui/Empty'
 import { UserAvatar }          from '../components/ui/UserUI'
 import { AbbrLegendButton, buildAbbrKeySheet } from './AbbrLegend'
 import { useOrgContext }       from '../store/context'
+import Pagination              from '../components/ui/Pagination'
 import * as XLSX               from 'xlsx'
 import api                     from '../lib/api'
+
+const PAYROLL_PAGE_SIZE = 25
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt  = n => n == null ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits:0, maximumFractionDigits:0 })}`
@@ -743,6 +746,8 @@ export default function PayrollTab({ orgId }) {
   const [loading,   setLoad]    = useState(false)
   const [error,     setError]   = useState(null)
   const [selected,  setSelected]= useState(new Set())
+  const [page,      setPage]    = useState(1)
+  const [limit,     setLimit]   = useState(5)
 
   useEffect(() => {
     if (!orgId) return
@@ -770,6 +775,9 @@ export default function PayrollTab({ orgId }) {
     return fDept ? data.data.filter(r => r.department === fDept) : data.data
   }, [data, fDept])
 
+  const payrollPages = Math.ceil(filtered.length / limit)
+  const paginated    = filtered.slice((page - 1) * limit, page * limit)
+
   function toggleAll() {
     if (selected.size === filtered.length) setSelected(new Set())
     else setSelected(new Set(filtered.map(r => r.employeeId)))
@@ -792,7 +800,7 @@ export default function PayrollTab({ orgId }) {
         <Input label="To"   type="date" value={endDate}   onChange={e => setEnd(e.target.value)}   style={{ width:160 }}/>
         {depts.length > 0 && (
           <div style={{ paddingBottom:2 }}>
-            <select value={fDept} onChange={e => setFDept(e.target.value)}
+            <select value={fDept} onChange={e => { setFDept(e.target.value); setPage(1) }}
               className="field-input" style={{ width:'auto', fontSize:'0.8125rem' }}>
               <option value="">All Departments</option>
               {depts.map(d => <option key={d} value={d}>{d}</option>)}
@@ -903,7 +911,7 @@ export default function PayrollTab({ orgId }) {
                         ))}
                       </tr>
                     ))
-                  : filtered.map(rec => (
+                  : paginated.map(rec => (
                       <PayrollRow
                         key={rec.employeeId}
                         rec={rec}
@@ -959,6 +967,8 @@ export default function PayrollTab({ orgId }) {
             <Empty icon={Users} title="No payroll data" description="No active employees found for this period."/>
           )}
         </div>
+        <Pagination page={page} pages={payrollPages} onPage={setPage} total={filtered.length} limit={limit}
+          onLimit={n => { setLimit(n); setPage(1) }}/>
 
         {/* Reports panel */}
         {!loading && filtered.length > 0 && (

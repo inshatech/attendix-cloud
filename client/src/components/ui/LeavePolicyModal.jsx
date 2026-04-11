@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   CalendarDays, Settings2, ChevronDown, ChevronUp,
-  Info, RotateCcw, Save, Wallet, Shield
+  Info, RotateCcw, Save, Wallet, Shield, GitBranch
 } from 'lucide-react'
 import { Modal } from './Modal'
 import { Button } from './Button'
@@ -159,7 +159,7 @@ function PtSlabRow({ slab, onChange, onRemove, isLast }) {
   )
 }
 
-export default function LeavePolicyModal({ open, onClose, orgId }) {
+export default function LeavePolicyModal({ open, onClose, orgId, orgName }) {
   const [policy,     setPolicy]     = useState(null)
   const [types,      setTypes]      = useState({})
   const [ptSlabs,    setPtSlabs]    = useState(DEFAULT_PT_SLABS)
@@ -217,11 +217,11 @@ export default function LeavePolicyModal({ open, onClose, orgId }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Leave Policy" description={`Configure leave rules and PT slabs for this organization`} size="lg">
+    <Modal open={open} onClose={onClose} title="Leave & Payroll Settings" description="Default leave policy and payroll rules for this organisation" size="lg">
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginTop: -8, marginBottom: 16 }}>
         {[
-          { key: 'leave', label: 'Leave Types', icon: CalendarDays },
+          { key: 'leave', label: 'Default Policy', icon: GitBranch },
           { key: 'pt',    label: 'Prof. Tax (PT)', icon: Wallet },
           { key: 'year',  label: 'Leave Year', icon: Settings2 },
         ].map(t => (
@@ -244,8 +244,16 @@ export default function LeavePolicyModal({ open, onClose, orgId }) {
             {[1,2,3,4].map(i => <div key={i} className="shimmer" style={{ height: 52, borderRadius: 12 }}/>)}
           </div>
         ) : activeTab === 'leave' ? (
-          /* ── Leave Types ─────────────────────────────────────── */
+          /* ── Default Leave Policy ────────────────────────────── */
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ padding:'10px 14px', borderRadius:10, background:'var(--accent-muted)',
+              border:'1px solid var(--accent-border)', display:'flex', gap:10, alignItems:'flex-start' }}>
+              <GitBranch size={13} style={{ color:'var(--accent)', marginTop:1, flexShrink:0 }}/>
+              <p style={{ fontSize:'0.75rem', color:'var(--text-secondary)', lineHeight:1.55 }}>
+                This is the <strong style={{ color:'var(--accent)' }}>organisation-wide default</strong> leave policy.
+                Individual shifts can override these quotas — go to <em>Shifts → Edit → Leave Policy</em> to set shift-specific entitlements.
+              </p>
+            </div>
             {LEAVE_TYPES.map(t => (
               <LeaveTypeRow
                 key={t.key}

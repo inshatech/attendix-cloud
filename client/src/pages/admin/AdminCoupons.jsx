@@ -7,9 +7,12 @@ import { Modal }        from '../../components/ui/Modal'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { AdminPage, PageHeader, StatCard, SectionCard, SearchBox } from '../../components/admin/AdminUI'
 import { ActionBtn }    from '../../components/ui/ActionBtn'
+import Pagination       from '../../components/ui/Pagination'
 import { useAuth }      from '../../store/auth'
 import { useToast }     from '../../components/ui/Toast'
 import api              from '../../lib/api'
+
+const COUPON_PAGE_SIZE = 20
 
 function fmtDate(d)  { return d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—' }
 function fmtDT(d)    { return d ? new Date(d).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : 'Never' }
@@ -246,6 +249,8 @@ export default function AdminCoupons() {
   const [plans,   setPlans]   = useState([])
   const [loading, setLoad]    = useState(true)
   const [q,       setQ]       = useState('')
+  const [page,    setPage]    = useState(1)
+  const [limit,   setLimit]   = useState(5)
   const [editing, setEdit]    = useState(null)
   const [creating,setCreate]  = useState(false)
   const [deleting,setDel]     = useState(null)
@@ -266,6 +271,8 @@ export default function AdminCoupons() {
   const filtered = coupons.filter(c =>
     !q || c.code.includes(q.toUpperCase()) || (c.description||'').toLowerCase().includes(q.toLowerCase())
   )
+  const pages   = Math.ceil(filtered.length / limit)
+  const paginated = filtered.slice((page - 1) * limit, page * limit)
 
   const active     = coupons.filter(c => c.isActive && !isExpired(c) && !isExhausted(c)).length
   const expired_c  = coupons.filter(c => isExpired(c)).length
@@ -294,7 +301,7 @@ export default function AdminCoupons() {
       </div>
 
       {/* Search */}
-      <SearchBox value={q} onChange={e=>setQ(e.target.value)} placeholder="Search by code or description…"/>
+      <SearchBox value={q} onChange={e=>{ setQ(e.target.value); setPage(1) }} placeholder="Search by code or description…"/>
 
       {/* Table */}
       <SectionCard title={`${filtered.length} coupons`} icon={Tag} noPadding>
@@ -314,7 +321,7 @@ export default function AdminCoupons() {
                 </tr>
               )) : filtered.length === 0
                 ? <tr><td colSpan={8} style={{padding:'3rem',textAlign:'center',color:'var(--text-dim)',fontSize:'0.9rem'}}>No coupons found</td></tr>
-                : filtered.map((c,i) => {
+                : paginated.map((c,i) => {
                   const tm       = TYPE_META[c.discountType] || TYPE_META.flat
                   const expired  = isExpired(c)
                   const exhaust  = isExhausted(c)
@@ -382,6 +389,9 @@ export default function AdminCoupons() {
           </table>
         </div>
       </SectionCard>
+
+      <Pagination page={page} pages={pages} onPage={setPage} total={filtered.length} limit={limit}
+        onLimit={n => { setLimit(n); setPage(1) }}/>
 
       <CouponModal open={creating||!!editing} coupon={editing} plans={plans}
         onClose={()=>{ setCreate(false); setEdit(null) }}

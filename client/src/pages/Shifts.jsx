@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Clock, Plus, Edit3, Trash2, Users, RefreshCw, Star, CheckCircle2 } from 'lucide-react'
+import { Clock, Plus, Edit3, Trash2, Users, RefreshCw, Star, CheckCircle2, ChevronDown, ChevronUp, CalendarDays } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -15,6 +15,94 @@ import { UserPage, UserPageHeader, UserStatCard, UserCard, UserActionBtn } from 
 import api from '../lib/api'
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+
+// ── Leave policy ────────────────────────────────────────────────────────────────
+const LEAVE_TYPES = [
+  { key: 'casual',    label: 'Casual Leave',    desc: 'General purpose, short notice',   color: '#58a6ff' },
+  { key: 'sick',      label: 'Sick Leave',       desc: 'Medical / health related',        color: '#34d399' },
+  { key: 'earned',    label: 'Earned / PL',      desc: 'Accumulated privilege leave',     color: '#a78bfa' },
+  { key: 'maternity', label: 'Maternity Leave',  desc: 'For female employees (182 days)', color: '#f472b6' },
+  { key: 'paternity', label: 'Paternity Leave',  desc: 'For new fathers',                color: '#60a5fa' },
+  { key: 'other',     label: 'Other Leave',      desc: 'Configurable extra category',    color: '#fb923c' },
+]
+
+const DEFAULT_LEAVE_CFG = { enabled: false, annualQuota: 0, monthlyLeaveCap: 0, carryForward: false, carryForwardCap: 0 }
+
+function LeaveTypeRow({ type, cfg, onChange }) {
+  const [open, setOpen] = useState(false)
+  const set = (k, v) => onChange({ ...cfg, [k]: v })
+  return (
+    <div style={{ border:'1px solid var(--border)', borderRadius:12, overflow:'hidden',
+      background: cfg.enabled ? 'var(--bg-surface2)' : 'var(--bg-surface)', transition:'all .2s' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', cursor:'pointer' }}
+        onClick={() => setOpen(o => !o)}>
+        <div style={{ width:8, height:8, borderRadius:'50%', flexShrink:0, transition:'background .2s',
+          background: cfg.enabled ? type.color : 'var(--border)' }}/>
+        <div style={{ flex:1, minWidth:0 }}>
+          <p style={{ fontSize:'0.8125rem', fontWeight:700, color: cfg.enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>{type.label}</p>
+          <p style={{ fontSize:'0.6875rem', color:'var(--text-dim)', marginTop:1 }}>{type.desc}</p>
+        </div>
+        <div style={{ display:'flex', gap:12, flexShrink:0, alignItems:'center' }}>
+          {cfg.enabled && (
+            <>
+              <span style={{ fontSize:'0.6875rem', fontFamily:'monospace', color:'var(--text-muted)' }}>{cfg.annualQuota}d/yr</span>
+              {cfg.carryForward && (
+                <span style={{ fontSize:'0.6rem', padding:'2px 7px', borderRadius:99, fontWeight:700,
+                  background:'rgba(34,197,94,.1)', border:'1px solid rgba(34,197,94,.2)', color:'#22c55e' }}>CF</span>
+              )}
+            </>
+          )}
+          <label style={{ display:'flex', alignItems:'center', gap:6, cursor:'pointer' }} onClick={e => e.stopPropagation()}>
+            <div onClick={() => set('enabled', !cfg.enabled)}
+              style={{ width:34, height:18, borderRadius:99, position:'relative', cursor:'pointer', transition:'background .2s',
+                background: cfg.enabled ? 'var(--accent)' : 'var(--border)' }}>
+              <div style={{ position:'absolute', top:2, width:14, height:14, borderRadius:'50%', background:'#fff',
+                transition:'left .2s', left: cfg.enabled ? 18 : 2 }}/>
+            </div>
+          </label>
+          {open ? <ChevronUp size={13} style={{ color:'var(--text-dim)' }}/> : <ChevronDown size={13} style={{ color:'var(--text-dim)' }}/>}
+        </div>
+      </div>
+      {open && cfg.enabled && (
+        <div style={{ padding:'0 14px 14px', borderTop:'1px solid var(--border)', display:'flex', flexDirection:'column', gap:12, marginTop:0 }}>
+          <div style={{ paddingTop:12, display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+            <div>
+              <label style={{ fontSize:'0.6875rem', fontFamily:'monospace', fontWeight:600, color:'var(--text-muted)',
+                textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:4 }}>Annual Quota (days)</label>
+              <input type="number" min="0" className="field-input" value={cfg.annualQuota}
+                onChange={e => set('annualQuota', Math.max(0, Number(e.target.value)))}/>
+            </div>
+            <div>
+              <label style={{ fontSize:'0.6875rem', fontFamily:'monospace', fontWeight:600, color:'var(--text-muted)',
+                textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:4 }}>Monthly Cap (0 = no cap)</label>
+              <input type="number" min="0" className="field-input" value={cfg.monthlyLeaveCap}
+                onChange={e => set('monthlyLeaveCap', Math.max(0, Number(e.target.value)))}/>
+            </div>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
+              <div onClick={() => set('carryForward', !cfg.carryForward)}
+                style={{ width:34, height:18, borderRadius:99, position:'relative', cursor:'pointer', transition:'background .2s', flexShrink:0,
+                  background: cfg.carryForward ? 'var(--accent)' : 'var(--border)' }}>
+                <div style={{ position:'absolute', top:2, width:14, height:14, borderRadius:'50%', background:'#fff',
+                  transition:'left .2s', left: cfg.carryForward ? 18 : 2 }}/>
+              </div>
+              <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)', fontWeight:500 }}>Carry Forward</span>
+            </label>
+            {cfg.carryForward && (
+              <div style={{ flex:1, minWidth:120 }}>
+                <label style={{ fontSize:'0.6875rem', fontFamily:'monospace', fontWeight:600, color:'var(--text-muted)',
+                  textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:4 }}>Max carry (0 = unlimited)</label>
+                <input type="number" min="0" className="field-input" value={cfg.carryForwardCap}
+                  onChange={e => set('carryForwardCap', Math.max(0, Number(e.target.value)))}/>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const PUNCH_MODES = [
   { value:'2-punch',    label:'2-Punch (Recommended)', desc:'First punch = In, Last punch = Out — works with any device' },
@@ -37,6 +125,7 @@ const EMPTY = {
     monthlyLateAllowance:0,
   },
   overtimeRules:{ enabled:false, afterMinutes:0, maxMinutesPerDay:240, roundToMinutes:30 },
+  leavePolicy:{},   // per-shift leave type quotas (overrides org default)
 }
 
 function CB({ checked, onChange, label }) {
@@ -202,6 +291,7 @@ function ShiftModal({ open, onClose, initial, orgId, onSaved }) {
       punchMode:       initial.punchMode       ?? EMPTY.punchMode,
       attendanceRules: { ...EMPTY.attendanceRules, ...(initial.attendanceRules||{}) },
       overtimeRules:   { ...EMPTY.overtimeRules,   ...(initial.overtimeRules||{}) },
+      leavePolicy:     initial.leavePolicy     ?? {},
     } : EMPTY)
   }, [open, initial])
 
@@ -247,7 +337,7 @@ function ShiftModal({ open, onClose, initial, orgId, onSaved }) {
     finally { setBusy(false) }
   }
 
-  const TABS = ['timing','breaks','rules','overtime']
+  const TABS = ['timing','breaks','rules','overtime','leave']
 
   return (
     <Modal open={open} onClose={onClose} title={initial?'Edit Shift':'New Shift'} description="Define schedule, breaks and attendance rules" size="xl">
@@ -419,12 +509,34 @@ function ShiftModal({ open, onClose, initial, orgId, onSaved }) {
             </div>
           )}
         </>}
+
+        {/* LEAVE POLICY */}
+        {tab === 'leave' && <>
+          <div style={{ padding:'10px 14px', borderRadius:10, background:'var(--accent-muted)',
+            border:'1px solid var(--accent-border)', display:'flex', gap:10, alignItems:'flex-start', marginBottom:4 }}>
+            <CalendarDays size={13} style={{ color:'var(--accent)', marginTop:1, flexShrink:0 }}/>
+            <p style={{ fontSize:'0.75rem', color:'var(--text-secondary)', lineHeight:1.55 }}>
+              Leave entitlements specific to this shift. These override the organisation's default policy for employees assigned here.
+              Enable only the leave types applicable to this shift.
+            </p>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {LEAVE_TYPES.map(t => (
+              <LeaveTypeRow
+                key={t.key}
+                type={t}
+                cfg={form.leavePolicy?.[t.key] || DEFAULT_LEAVE_CFG}
+                onChange={cfg => setForm(f => ({ ...f, leavePolicy: { ...f.leavePolicy, [t.key]: cfg } }))}
+              />
+            ))}
+          </div>
+        </>}
       </div>
 
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", paddingTop:12, borderTop:"1px solid var(--border)", flexShrink:0 }}>
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 items-center">
           {TABS.map(t=>(
-            <button key={t} onClick={()=>setTab(t)}
+            <button key={t} title={t} onClick={()=>setTab(t)}
               className={cn('w-2 h-2 rounded-full transition-all', tab===t?'bg-accent scale-125':'bg-edge-soft hover:bg-edge-bright')}/>
           ))}
         </div>

@@ -18,6 +18,7 @@ import { useAuth } from '../store/auth'
 import { useOrgContext } from '../store/context'
 import { UserPage, UserStatCard, UserActionBtn, UserAvatar, UserPageHeader } from '../components/ui/UserUI'
 import { useToast } from '../components/ui/Toast'
+import Pagination from '../components/ui/Pagination'
 import { fmtDate, cn } from '../lib/utils'
 import api from '../lib/api'
 
@@ -1464,6 +1465,7 @@ export default function Employees() {
   const [emps,        setEmps]      = useState([])
   const [total,       setTotal]     = useState(0)
   const [page,        setPage]      = useState(1)
+  const [limit,       setLimit]     = useState(5)
   const [q,           setQ]         = useState('')
   const [fDept,       setFDept]     = useState('')
   const [fShift,      setFShift]    = useState('')
@@ -1500,7 +1502,7 @@ export default function Employees() {
     if (!oid) return
     setLoad(true)
     try {
-      const p = new URLSearchParams({ page, limit:50 })
+      const p = new URLSearchParams({ page, limit })
       if (q)      p.set('q', q)
       if (fDept)  p.set('department', fDept)
       if (fShift) p.set('shiftId', fShift)
@@ -1517,7 +1519,7 @@ export default function Employees() {
 
   useEffect(() => { if (ready && orgId) { load(orgId); loadMeta(orgId) } }, [ready, orgId])
 
-  useEffect(() => { if (orgId) load(orgId) }, [page, q, fDept, fShift, fStatus, fLinked])
+  useEffect(() => { if (orgId) load(orgId) }, [page, limit, q, fDept, fShift, fStatus, fLinked])
 
   async function deleteEmp() {
     if (!delTarget) return
@@ -1529,7 +1531,7 @@ export default function Employees() {
     finally { setDelBusy(false) }
   }
 
-  const pages = Math.ceil(total/50)
+  const pages = Math.ceil(total/limit)
 
   return (
     <UserPage>
@@ -1661,13 +1663,8 @@ export default function Employees() {
         )}
       </div>
 
-      {pages > 1 && (
-        <div className="flex justify-center items-center gap-3">
-          <Button variant="secondary" size="sm" onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}>← Prev</Button>
-          <span style={{ fontSize:"0.875rem", color:"var(--text-muted)", fontFamily:"monospace" }}>Page {page} of {pages}</span>
-          <Button variant="secondary" size="sm" onClick={()=>setPage(p=>p+1)} disabled={page>=pages}>Next →</Button>
-        </div>
-      )}
+      <Pagination page={page} pages={pages} onPage={setPage} total={total} limit={limit}
+        onLimit={n => { setLimit(n); setPage(1) }}/>
 
       <DepartmentsModal open={deptModal} onClose={()=>setDeptModal(false)}
         orgId={orgId} onChanged={()=>loadMeta(orgId)}/>

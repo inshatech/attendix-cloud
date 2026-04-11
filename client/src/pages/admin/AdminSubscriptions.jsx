@@ -11,6 +11,7 @@ import { Modal }        from '../../components/ui/Modal'
 import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { AdminPage, PageHeader, StatCard, SectionCard, SearchBox } from '../../components/admin/AdminUI'
 import { ActionBtn }    from '../../components/ui/ActionBtn'
+import Pagination       from '../../components/ui/Pagination'
 import { useAuth }      from '../../store/auth'
 import { useToast }     from '../../components/ui/Toast'
 import api              from '../../lib/api'
@@ -424,6 +425,7 @@ export default function AdminSubscriptions() {
   const [statusF, setStatusF]= useState('')
   const [gwF,     setGwF]    = useState('')
   const [page,    setPage]   = useState(1)
+  const [limit,   setLimit]  = useState(5)
   const [showEvt, setShowEvt]= useState(false)
   const [editing, setEdit]   = useState(null)
   const [refunding,setRefund]= useState(null)
@@ -437,7 +439,7 @@ export default function AdminSubscriptions() {
   async function doLoad() {
     setLoad(true)
     try {
-      const params = new URLSearchParams({ page, limit:50 })
+      const params = new URLSearchParams({ page, limit })
       if (statusF) params.set('status', statusF)
       if (q)       params.set('userId', q)
       const [sr, pr, er] = await Promise.all([
@@ -477,7 +479,7 @@ export default function AdminSubscriptions() {
     return () => { sseRef.current?.close() }
   }, [ready])
 
-  useEffect(() => { if (ready) doLoad() }, [page, statusF, gwF])
+  useEffect(() => { if (ready) doLoad() }, [page, limit, statusF, gwF])
 
   const active   = subs.filter(s=>s.status==='active').length
   const trial    = subs.filter(s=>s.status==='trial').length
@@ -485,7 +487,7 @@ export default function AdminSubscriptions() {
   const expiring = subs.filter(s=>{ const d=daysLeft(s.endDate); return d!==null&&d>=0&&d<=7&&s.status==='active' }).length
   const revenue  = subs.filter(s=>['active','trial'].includes(s.status)).reduce((a,s)=>a+(s.paidAmount||0),0)
   const gwPaid   = subs.filter(s=>s.gateway&&s.gateway!=='manual').length
-  const pages    = Math.ceil(total/50)
+  const pages    = Math.ceil(total/limit)
   const newEvts  = events.filter(e=>e.type==='payment_received').length
 
   function doCancel(sub) { setCancelSub(sub) }
@@ -616,13 +618,8 @@ export default function AdminSubscriptions() {
       </SectionCard>
 
       {/* Pagination */}
-      {pages > 1 && (
-        <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:10 }}>
-          <Button variant="secondary" size="sm" onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}>← Prev</Button>
-          <span style={{ fontSize:'0.875rem', color:'var(--text-muted)', fontFamily:'monospace' }}>Page {page} / {pages}</span>
-          <Button variant="secondary" size="sm" onClick={()=>setPage(p=>p+1)} disabled={page>=pages}>Next →</Button>
-        </div>
-      )}
+      <Pagination page={page} pages={pages} onPage={setPage} total={total} limit={limit}
+        onLimit={n => { setLimit(n); setPage(1) }}/>
 
       {/* Modals */}
       <EditSubModal open={!!editing}   sub={editing}   plans={plans} onClose={()=>setEdit(null)}   onSaved={()=>{setEdit(null);doLoad()}}/>

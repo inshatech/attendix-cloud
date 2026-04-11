@@ -9,6 +9,7 @@ import { ConfirmModal } from '../../components/ui/ConfirmModal'
 import { ActionBtn } from '../../components/ui/ActionBtn'
 import { AdminPage, PageHeader, StatCard, SectionCard, FilterTabs, SearchBox } from '../../components/admin/AdminUI'
 import { useToast } from '../../components/ui/Toast'
+import Pagination from '../../components/ui/Pagination'
 import { useAuth } from '../../store/auth'
 import { cn } from '../../lib/utils'
 import api from '../../lib/api'
@@ -401,6 +402,7 @@ export default function AdminUsers() {
   const [users,  setUsers] = useState([])
   const [total,  setTotal] = useState(0)
   const [page,   setPage]  = useState(1)
+  const [limit,  setLimit] = useState(5)
   const [q,      setQ]     = useState('')
   const [roleF,  setRoleF] = useState('')
   const [subF,   setSubF]  = useState('')
@@ -420,7 +422,7 @@ export default function AdminUsers() {
   async function doLoad() {
     setLoad(true)
     try {
-      const params = new URLSearchParams({ page, limit:50 })
+      const params = new URLSearchParams({ page, limit })
       if (q)     params.set('q',    q)
       if (roleF) params.set('role', roleF)
       const [ur,pr] = await Promise.all([api.get(`/admin/users?${params}`), api.get('/admin/plans')])
@@ -435,9 +437,9 @@ export default function AdminUsers() {
     finally { setLoad(false) }
   }
 
-  useEffect(() => { if (ready) doLoad() }, [ready, page, q, roleF, subF])
+  useEffect(() => { if (ready) doLoad() }, [ready, page, limit, q, roleF, subF])
 
-  const pages = Math.ceil(total/50)
+  const pages = Math.ceil(total/limit)
 
   return (
     <AdminPage>
@@ -487,13 +489,8 @@ export default function AdminUsers() {
         {!load && users.length===0 && <p style={{ textAlign:'center', padding:'3rem', color:'var(--text-dim)', fontSize:'0.9rem' }}>No users found</p>}
       </SectionCard>
 
-      {pages>1 && (
-        <div style={{ display:'flex', justifyContent:'center', gap:10 }}>
-          <Button variant="secondary" size="sm" onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}>← Prev</Button>
-          <span style={{ fontSize:'0.9rem', color:'var(--text-muted)', alignSelf:'center', fontFamily:'monospace' }}>Page {page} / {pages}</span>
-          <Button variant="secondary" size="sm" onClick={()=>setPage(p=>p+1)} disabled={page>=pages}>Next →</Button>
-        </div>
-      )}
+      <Pagination page={page} pages={pages} onPage={setPage} total={total} limit={limit}
+        onLimit={n => { setLimit(n); setPage(1) }}/>
 
       <ConfirmModal open={!!del} onClose={()=>setDel(null)} danger title="Delete User"
         message={`Delete "${del?.name}"? Cannot be undone.`} loading={busy}

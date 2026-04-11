@@ -17,9 +17,12 @@ import {
   UserPage, UserStatCard, UserAvatar, UserPageHeader,
 } from '../components/ui/UserUI'
 import { useToast }          from '../components/ui/Toast'
+import Pagination            from '../components/ui/Pagination'
 import PayrollTab            from './PayrollTab'
 import { AbbrLegendButton }  from './AbbrLegend'
 import api                   from '../lib/api'
+
+const ATT_PAGE_SIZE = 25
 
 // ── Gender icon ───────────────────────────────────────────────────────────────
 const GENDER_CFG = {
@@ -777,6 +780,11 @@ export default function Attendance() {
   const [delTarget,     setDelTarget]     = useState(null)
   const [delBusy,       setDelBusy]       = useState(false)
 
+  const [todayPage,  setTodayPage]  = useState(1)
+  const [rangePage,  setRangePage]  = useState(1)
+  const [manualPage, setManualPage] = useState(1)
+  const [attLimit,   setAttLimit]   = useState(5)
+
   async function loadEmps(oid) {
     try {
       const r = await api.get(`/organizations/${oid}/employees?status=active&limit=500`)
@@ -808,7 +816,7 @@ export default function Attendance() {
       if (deviceId) p.set('deviceId', deviceId)
       if (fDept)    p.set('department', fDept)
       const r = await api.get(`/organizations/${oid}/attendance/range?${p}`)
-      setRange(r)
+      setRange(r); setRangePage(1)
     } catch(e) { toast(e.message, 'error') }
     finally { setLoad(false) }
   }
@@ -832,7 +840,7 @@ export default function Attendance() {
     setLoad(true)
     try {
       const r = await api.get(`/organizations/${oid}/attendance/manual?startDate=${startDate}&endDate=${endDate}`)
-      setManuals(r.data || [])
+      setManuals(r.data || []); setManualPage(1)
     } catch(e) { toast(e.message, 'error') }
     finally { setLoad(false) }
   }
@@ -878,11 +886,20 @@ export default function Attendance() {
     finally { setDelBusy(false) }
   }
 
-  const todayRecs = (today?.records || []).filter(r => {
+  const todayRecs   = (today?.records || []).filter(r => {
     if (fStatus && r.status !== fStatus) return false
     if (fDept   && r.department !== fDept) return false
     return true
   })
+  const todayPages  = Math.ceil(todayRecs.length / attLimit)
+  const todayPaged  = todayRecs.slice((todayPage - 1) * attLimit, todayPage * attLimit)
+
+  const rangeData   = range?.data || []
+  const rangePages  = Math.ceil(rangeData.length / attLimit)
+  const rangePaged  = rangeData.slice((rangePage - 1) * attLimit, rangePage * attLimit)
+
+  const manualPages = Math.ceil(manuals.length / attLimit)
+  const manualPaged = manuals.slice((manualPage - 1) * attLimit, manualPage * attLimit)
 
   const TABS = [
     { id:'today',   label:"Today's Attendance", icon:Calendar    },
@@ -971,13 +988,13 @@ export default function Attendance() {
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
               {/* Filters */}
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-                <select value={fStatus} onChange={e => setFStatus(e.target.value)}
+                <select value={fStatus} onChange={e => { setFStatus(e.target.value); setTodayPage(1) }}
                   className="field-input" style={{ width:'auto', fontSize:'0.8125rem' }}>
                   <option value="">All Statuses</option>
                   {Object.entries(STATUS_CFG).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
                 </select>
                 {depts.length > 0 && (
-                  <select value={fDept} onChange={e => setFDept(e.target.value)}
+                  <select value={fDept} onChange={e => { setFDept(e.target.value); setTodayPage(1) }}
                     className="field-input" style={{ width:'auto', fontSize:'0.8125rem' }}>
                     <option value="">All Departments</option>
                     {depts.map(d => <option key={d} value={d}>{d}</option>)}
@@ -1038,7 +1055,7 @@ export default function Attendance() {
                               ))}
                             </tr>
                           ))
-                        : todayRecs.map(rec => (
+                        : todayPaged.map(rec => (
                             <TodayRow key={rec.employeeId} rec={rec}
                               onEdit={r => { setManualInitial(r); setManualOpen(true) }}/>
                           ))}
@@ -1049,6 +1066,8 @@ export default function Attendance() {
                   <Empty icon={Users} title="No records" description="No employees match this filter, or no punches recorded today."/>
                 )}
               </Card>
+              <Pagination page={todayPage} pages={todayPages} onPage={setTodayPage} total={todayRecs.length} limit={attLimit}
+                onLimit={n => { setAttLimit(n); setTodayPage(1) }}/>
             </div>
 
             {/* Live feed */}
@@ -1093,7 +1112,7 @@ export default function Attendance() {
             <Empty icon={TrendingUp} title="Select a date range" description="Choose start and end dates, then click Generate Report."/>
           )}
 
-          {range && (
+          {range && (<>
             <Card>
               <div style={{ padding:'13px 20px', borderBottom:'1px solid var(--border-soft)', display:'flex', gap:20, flexWrap:'wrap' }}>
                 {[
@@ -1142,17 +1161,19 @@ export default function Attendance() {
                             ))}
                           </tr>
                         ))
-                      : (range.data||[]).map(rec => (
+                      : rangePaged.map(rec => (
                           <RangeRow key={rec.employeeId} rec={rec}/>
                         ))}
                   </tbody>
                 </table>
               </div>
-              {!loading && !range.data?.length && (
+              {!loading && !rangeData.length && (
                 <Empty icon={Calendar} title="No data" description="No records found for this period."/>
               )}
             </Card>
-          )}
+            <Pagination page={rangePage} pages={rangePages} onPage={setRangePage} total={rangeData.length} limit={attLimit}
+              onLimit={n => { setAttLimit(n); setRangePage(1) }}/>
+          </>)}
         </>)}
 
         {/* ═══ LOGS ═══ */}
@@ -1251,7 +1272,7 @@ export default function Attendance() {
                           ))}
                         </tr>
                       ))
-                    : manuals.map((m, i) => (
+                    : manualPaged.map((m, i) => (
                         <motion.tr key={m.manualId||i} initial={{ opacity:0 }} animate={{ opacity:1 }} className="tbl-row">
                           <td className="tbl-cell">
                             <div style={{ display:'flex', alignItems:'center', gap:9 }}>
@@ -1313,6 +1334,8 @@ export default function Attendance() {
               <Empty icon={Edit3} title="No manual entries" description="Click New Entry to manually override attendance for any employee and date."/>
             )}
           </Card>
+          <Pagination page={manualPage} pages={manualPages} onPage={setManualPage} total={manuals.length} limit={attLimit}
+            onLimit={n => { setAttLimit(n); setManualPage(1) }}/>
         </>)}
       </>)}
 

@@ -110,6 +110,12 @@ const ShiftSchema = new mongoose.Schema({
   attendanceRules: { type: AttendanceRulesSchema, default: () => ({}) },
   overtimeRules:   { type: OvertimeRulesSchema,   default: () => ({}) },
 
+  // ── Leave policy override ──────────────────────────────────────────────────
+  // Per-shift leave entitlements (overrides org-level default policy).
+  // Keys match LEAVE_TYPES: casual, sick, earned, maternity, paternity, other
+  // Each value: { enabled, annualQuota, monthlyLeaveCap, carryForward, carryForwardCap }
+  leavePolicy: { type: mongoose.Schema.Types.Mixed, default: {} },
+
   // ── Audit ─────────────────────────────────────────────────────────────────
   createdBy:   { type: String, default: null },
   updatedBy:   { type: String, default: null },
