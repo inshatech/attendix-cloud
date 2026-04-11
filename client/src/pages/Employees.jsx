@@ -1365,15 +1365,13 @@ function EmpRow({ emp, onEdit, onDelete, onView }) {
               <GenderIcon gender={emp.gender}/>
             </div>
             <p style={{ fontSize:"0.625rem", fontFamily:"monospace", color:"var(--text-muted)" }}>{emp.employeeCode}</p>
+            <p style={{ fontSize:"0.625rem", fontFamily:"monospace", color:"var(--text-muted)" }}>{emp.mobile || emp.email || '—'}</p>
           </div>
         </div>
       </td>
       <td className="tbl-cell">
         <p style={{ fontSize:"0.875rem", color:"var(--text-secondary)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{emp.designation || '—'}</p>
         <p style={{ fontSize:"0.625rem", color:"var(--text-muted)" }}>{emp.department || '—'}</p>
-      </td>
-      <td className="tbl-cell">
-        <p style={{ fontSize:"0.75rem", color:"var(--text-muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{emp.mobile || emp.email || '—'}</p>
       </td>
       <td className="tbl-cell">
         {emp.shift
@@ -1630,11 +1628,10 @@ export default function Employees() {
             <tr className="tbl-row">
               <th className="tbl-head">Employee</th>
               <th className="tbl-head">Role / Dept</th>
-              <th className="tbl-head">Contact</th>
               <th className="tbl-head">Shift</th>
-              <th className="tbl-head">Biometric</th>
-              <th className="tbl-head">Last Punch</th>
-              <th className="tbl-head" title="CL/SL/EL/etc.">Leave Balance</th>
+              <th className="tbl-head" title='Sync Biometric'>Sync</th>
+              <th className="tbl-head" title='Last Punch'>L.P</th>
+              <th className="tbl-head" title="Leave Balance CL/SL/EL/etc.">L.B</th>
               <th className="tbl-head">Status</th>
               <th className="tbl-head">Actions</th>
             </tr>
