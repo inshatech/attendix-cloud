@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import {
   Fingerprint, LayoutDashboard, Building2, CreditCard, Wifi,
@@ -14,6 +14,7 @@ import { useNotifications } from '../../store/notifications'
 import { useBrand } from '../../store/brand'
 import { useSidebar } from '../../store/sidebar'
 import { cn } from '../../lib/utils'
+import { ConfirmModal } from '../ui/ConfirmModal'
 
 function NBadge({ count }) {
   if (!count || count === 0) return null
@@ -104,8 +105,17 @@ function Footer({ user, logout, roleLabel, accent }) {
   const { theme, toggle } = useTheme()
   const { companyName } = useBrand()
   const isLight = theme === 'light'
+  const [confirmOpen, setConfirmOpen] = useState(false)
   return (
     <div style={{ padding: '0.75rem', borderTop: '1px solid var(--border)' }}>
+      <ConfirmModal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => { setConfirmOpen(false); logout() }}
+        title="Sign Out"
+        message="Are you sure you want to sign out of your account?"
+        danger
+      />
       {/* Theme toggle */}
       <button onClick={toggle}
         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: 10, background: 'transparent', border: 'none', cursor: 'pointer', marginBottom: '0.25rem', transition: 'background .15s' }}
@@ -133,7 +143,7 @@ function Footer({ user, logout, roleLabel, accent }) {
         </div>
       </button>
       {/* User / logout */}
-      <button onClick={logout}
+      <button onClick={() => setConfirmOpen(true)}
         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 0.75rem', borderRadius: 10, background: 'transparent', border: 'none', cursor: 'pointer', transition: 'background .15s' }}
         onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-surface2)'}
         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>

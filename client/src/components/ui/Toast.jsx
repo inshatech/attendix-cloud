@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle2, XCircle, AlertTriangle, Info, X } from 'lucide-react'
 
@@ -32,8 +33,8 @@ export function Toaster() {
   const isLight = document.documentElement.getAttribute('data-theme') === 'light'
   const palette = isLight ? COLOR_LIGHT : COLOR
 
-  return (
-    <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2 w-80">
+  return createPortal(
+    <div className="fixed bottom-5 right-5 flex flex-col gap-2 w-80" style={{ zIndex: 10001 }}>
       <AnimatePresence>
         {items.map(t => (
           <motion.div key={t.id}
@@ -46,6 +47,7 @@ export function Toaster() {
           </motion.div>
         ))}
       </AnimatePresence>
-    </div>
+    </div>,
+    document.body
   )
 }

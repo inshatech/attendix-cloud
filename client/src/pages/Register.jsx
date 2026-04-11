@@ -91,7 +91,7 @@ export default function Register() {
   }, [googleEnabled, googleClientId])
 
   return (
-    <div style={{ height: '100vh', display: 'flex', overflow: 'hidden', background: 'var(--bg-base)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', overflowX: 'hidden', background: 'var(--bg-base)' }}>
       <Toaster />
 
       {/* ══ LEFT PANEL — 42% ══ */}
@@ -209,8 +209,8 @@ export default function Register() {
 
       {/* ══ RIGHT PANEL — remaining ══ */}
       <div style={{
-        flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', padding: '2rem', position: 'relative', overflow: 'hidden'
+        flex: 1, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', padding: '2rem 2rem 4.5rem', position: 'relative', overflowX: 'hidden'
       }}>
 
         <div style={{

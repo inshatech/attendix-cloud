@@ -336,7 +336,7 @@ export default function Login() {
   const hasId = id.trim().length > 0
 
   return (
-    <div style={{ height: '100vh', display: 'flex', overflow: 'hidden', background: 'var(--bg-base)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', overflowX: 'hidden', background: 'var(--bg-base)' }}>
       <Toaster />
 
       {/* ══ LEFT PANEL ══ */}
@@ -364,8 +364,8 @@ export default function Login() {
 
       {/* ══ RIGHT PANEL ══ */}
       <div style={{
-        flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', padding: '2rem', position: 'relative', overflow: 'hidden'
+        flex: 1, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', padding: '2rem 2rem 4.5rem', position: 'relative', overflowX: 'hidden'
       }}>
 
         <div style={{
