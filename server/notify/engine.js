@@ -123,6 +123,22 @@ async function sendEmail(to, subject, html, text) {
   return t.sendMail({ from:c.from||`Gateway <${c.user}>`, to, subject, html, text });
 }
 
+/** Same as sendEmail but supports file attachments.
+ *  attachments: [{ filename, content: Buffer, contentType }]
+ */
+async function sendEmailWithAttachment(to, subject, html, text, attachments = []) {
+  const p = await getPlugin('smtp'); if (!p?.enabled) throw new Error('SMTP plugin is disabled');
+  const c = p.config || {};
+  let cfg;
+  if (c.service === 'gmail') {
+    cfg = { service:'gmail', auth:{ user:c.user, pass:c.pass } };
+  } else {
+    cfg = { host:c.host, port:Number(c.port)||587, secure:Boolean(c.secure), auth:{ user:c.user, pass:c.pass } };
+  }
+  const t = nodemailer.createTransport(cfg);
+  return t.sendMail({ from:c.from||`Gateway <${c.user}>`, to, subject, html, text, attachments });
+}
+
 async function buildOtpHtml(name, code) {
   const b = await getBrand();
   const logoBlock = b.logoUrl
@@ -143,49 +159,49 @@ async function buildOtpHtml(name, code) {
       .af  { padding:12px 16px !important; }
       .otp { font-size:38px !important; letter-spacing:10px !important; }
     }
-    /* ── Light mode (Apple Mail, iOS Mail, Gmail iOS) ── */
-    @media (prefers-color-scheme:light) {
-      .outer { background:#f0f0f8 !important; }
-      .ah    { background:#ffffff !important; border-color:#dde0f0 !important; }
-      .ab    { background:#ffffff !important; border-color:#dde0f0 !important; }
-      .af    { background:#f8f8fc !important; border-color:#dde0f0 !important; }
-      .otpbx { background:#f0f2ff !important; border-color:#c8cef0 !important; }
-      .c-head { color:#1a1a2e !important; }
-      .c-sub  { color:#5050a0 !important; }
-      .c-body { color:#4a4a80 !important; }
-      .c-foot { color:#8888b0 !important; }
+    /* ── Dark mode override ───────────────────────── */
+    @media (prefers-color-scheme:dark) {
+      .outer { background:#0a0a14 !important; }
+      .ah    { background:#111121 !important; border-color:#1e1e35 !important; }
+      .ab    { background:#111121 !important; border-color:#1e1e35 !important; }
+      .af    { background:#0d0d1a !important; border-color:#1e1e35 !important; }
+      .otpbx { background:#0a0a14 !important; border-color:#2a2a50 !important; }
+      .c-head { color:#e0e0f0 !important; }
+      .c-sub  { color:#4a4a72 !important; }
+      .c-body { color:#8080a8 !important; }
+      .c-foot { color:#3a3a58 !important; }
     }
   </style>
 </head>
-<body class="outer" style="margin:0;padding:0;background:#0a0a14;font-family:'Segoe UI',Arial,sans-serif;">
+<body class="outer" style="margin:0;padding:0;background:#f0f0f8;font-family:'Segoe UI',Arial,sans-serif;">
   <div class="aw" style="max-width:480px;margin:32px auto;padding:0 14px;">
 
     <!-- Header -->
-    <div class="ah" style="background:#111121;border:1px solid #1e1e35;border-radius:14px 14px 0 0;padding:18px 24px;display:flex;align-items:center;gap:12px;">
+    <div class="ah" style="background:#ffffff;border:1px solid #dde0f0;border-radius:14px 14px 0 0;padding:18px 24px;display:flex;align-items:center;gap:12px;">
       <div style="width:38px;height:38px;border-radius:10px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.25);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
         ${logoBlock}
       </div>
       <div>
-        <p class="c-head" style="margin:0;color:#e0e0f0;font-weight:700;font-size:0.9rem;">${b.appName}</p>
-        <p class="c-sub" style="margin:2px 0 0;color:#4a4a72;font-size:0.65rem;font-family:monospace;">${b.tagline}</p>
+        <p class="c-head" style="margin:0;color:#1a1a2e;font-weight:700;font-size:0.9rem;">${b.appName}</p>
+        <p class="c-sub" style="margin:2px 0 0;color:#5050a0;font-size:0.65rem;font-family:monospace;">${b.tagline}</p>
       </div>
     </div>
 
     <!-- Body -->
-    <div class="ab" style="background:#111121;border:1px solid #1e1e35;border-top:none;padding:28px 24px;">
-      <p class="c-sub" style="margin:0 0 5px;color:#7070a0;font-size:0.72rem;font-family:monospace;text-transform:uppercase;letter-spacing:0.12em;">One-Time Passcode</p>
-      <h1 class="c-head" style="margin:0 0 16px;font-size:1.25rem;font-weight:800;color:#e0e0f0;letter-spacing:-0.02em;">Verify your identity</h1>
-      <p class="c-body" style="margin:0 0 24px;color:#8080a8;font-size:0.875rem;line-height:1.7;">
-        Hi <strong style="color:#d0d0ec;">${name}</strong>, use the code below to complete your sign-in.
-        This code expires in <strong style="color:#d0d0ec;">10 minutes</strong>.
+    <div class="ab" style="background:#ffffff;border:1px solid #dde0f0;border-top:none;padding:28px 24px;">
+      <p class="c-sub" style="margin:0 0 5px;color:#5050a0;font-size:0.72rem;font-family:monospace;text-transform:uppercase;letter-spacing:0.12em;">One-Time Passcode</p>
+      <h1 class="c-head" style="margin:0 0 16px;font-size:1.25rem;font-weight:800;color:#1a1a2e;letter-spacing:-0.02em;">Verify your identity</h1>
+      <p class="c-body" style="margin:0 0 24px;color:#4a4a80;font-size:0.875rem;line-height:1.7;">
+        Hi <strong style="color:#1a1a2e;">${name}</strong>, use the code below to complete your sign-in.
+        This code expires in <strong style="color:#1a1a2e;">10 minutes</strong>.
       </p>
 
       <!-- OTP Box -->
-      <div class="otpbx" style="background:#0a0a14;border:2px solid #2a2a50;border-radius:12px;padding:24px 16px;text-align:center;margin:0 0 8px;">
-        <p class="c-sub" style="margin:0 0 10px;color:#4a4a72;font-size:0.65rem;font-family:monospace;letter-spacing:0.15em;text-transform:uppercase;">Your OTP — tap &amp; hold to copy</p>
+      <div class="otpbx" style="background:#f0f2ff;border:2px solid #c8cef0;border-radius:12px;padding:24px 16px;text-align:center;margin:0 0 8px;">
+        <p class="c-sub" style="margin:0 0 10px;color:#5050a0;font-size:0.65rem;font-family:monospace;letter-spacing:0.15em;text-transform:uppercase;">Your OTP — tap &amp; hold to copy</p>
         <span class="otp" style="font-family:'Courier New',monospace;font-size:46px;font-weight:700;letter-spacing:12px;color:#58a6ff;display:block;line-height:1.15;user-select:all;-webkit-user-select:all;">${code}</span>
       </div>
-      <p style="margin:0 0 20px;color:#3a3a5a;font-size:0.68rem;text-align:center;">On mobile: tap and hold the code above to copy it</p>
+      <p style="margin:0 0 20px;color:#9090b0;font-size:0.68rem;text-align:center;">On mobile: tap and hold the code above to copy it</p>
 
       <!-- Warning -->
       <div style="background:rgba(248,113,113,0.07);border:1px solid rgba(248,113,113,0.22);border-radius:8px;padding:12px 16px;">
@@ -196,8 +212,8 @@ async function buildOtpHtml(name, code) {
     </div>
 
     <!-- Footer -->
-    <div class="af" style="background:#0d0d1a;border:1px solid #1e1e35;border-top:none;border-radius:0 0 14px 14px;padding:14px 24px;text-align:center;">
-      <p class="c-foot" style="margin:0;color:#3a3a58;font-size:10px;">
+    <div class="af" style="background:#f8f8fc;border:1px solid #dde0f0;border-top:none;border-radius:0 0 14px 14px;padding:14px 24px;text-align:center;">
+      <p class="c-foot" style="margin:0;color:#8888b0;font-size:10px;">
         ${b.companyName ? `© ${new Date().getFullYear()} ${b.companyName} · ` : ''}${b.appName} · Automated notification · Do not reply
       </p>
       ${b.website ? `<p style="margin:5px 0 0;"><a href="${b.website}" style="color:#58a6ff;font-size:10px;text-decoration:none;">${b.website.replace(/^https?:\/\//,'')}</a></p>` : ''}
@@ -244,4 +260,4 @@ async function testPlugin(name, target = {}) {
   return result;
 }
 
-module.exports = { sendOtp, sendSms, sendBulkSms, checkSmsBalance, sendWhatsApp, checkWhatsAppBalance, sendEmail, buildOtpHtml, getBrand, testPlugin, invalidateCache };
+module.exports = { sendOtp, sendSms, sendBulkSms, checkSmsBalance, sendWhatsApp, checkWhatsAppBalance, sendEmail, sendEmailWithAttachment, buildOtpHtml, getBrand, testPlugin, invalidateCache };

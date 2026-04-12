@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
 import { UserPage, UserStatCard, UserActionBtn } from '../components/ui/UserUI'
+import { SearchBox } from '../components/ui/SearchBox'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Modal } from '../components/ui/Modal'
@@ -258,9 +259,8 @@ function MachineUsersModal({ open, onClose, dev, orgId }) {
     <Modal open={open} onClose={onClose} title="Machine Users" size="md">
       {/* Search + meta */}
       <div className="flex items-center gap-3 mb-4">
-        <input value={q} onChange={e => setQ(e.target.value)}
-          placeholder="Search by name or UID…"
-          className="field-input flex-1 text-sm"/>
+        <SearchBox value={q} onChange={e => setQ(e.target.value)}
+          placeholder="Search by name or UID…" style={{ flex:1 }}/>
         <span style={{ fontSize:"0.75rem", fontFamily:"monospace", color:"var(--text-muted)", whiteSpace:"nowrap", flexShrink:0 }}>
           {meta.linked} linked / {meta.total} total
         </span>

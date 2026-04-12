@@ -4,12 +4,13 @@ import {
   DollarSign, TrendingUp, Users, ChevronDown, ChevronRight,
   Filter, Download, FileText, BarChart3, Clock, XCircle,
   CheckCircle2, Wallet, Receipt, PieChart, AlertTriangle,
-  CreditCard, Shield, Minus, Plus, Printer,
+  CreditCard, Shield, Minus, Plus, Printer, Fingerprint,
 } from 'lucide-react'
 import { Button }              from '../components/ui/Button'
 import { Input }               from '../components/ui/Input'
 import { Empty }               from '../components/ui/Empty'
 import { UserAvatar }          from '../components/ui/UserUI'
+import { SearchBox }           from '../components/ui/SearchBox'
 import { AbbrLegendButton, buildAbbrKeySheet } from './AbbrLegend'
 import { useOrgContext }       from '../store/context'
 import Pagination              from '../components/ui/Pagination'
@@ -34,14 +35,24 @@ function GI({ gender }) {
 
 // ── Report type definitions ───────────────────────────────────────────────────
 const REPORT_TYPES = [
-  { id:'payroll-register', label:'Payroll Register',     icon:Receipt,    desc:'Full salary breakdown for all employees' },
-  { id:'salary-slip',      label:'Salary Slip',          icon:FileText,   desc:'Individual pay slip per employee'        },
-  { id:'att-summary',      label:'Attendance Summary',   icon:BarChart3,  desc:'Days present, absent, OT per employee'   },
-  { id:'ot-report',        label:'Overtime Report',      icon:Clock,      desc:'OT hours and earnings analysis'          },
-  { id:'deductions',       label:'Deductions Report',    icon:Shield,     desc:'PF, ESI, PT breakdown'                   },
-  { id:'lop-report',       label:'LOP Report',           icon:Minus,      desc:'Loss of Pay analysis per employee'       },
-  { id:'bank-advice',      label:'Bank Transfer Advice', icon:CreditCard, desc:'Net salary per account for bank upload'  },
+  { id:'payroll-register', label:'Payroll Register',     icon:Receipt,     desc:'Full salary breakdown for all employees',       group:'payroll'     },
+  { id:'salary-slip',      label:'Salary Slip',          icon:FileText,    desc:'Individual pay slip per employee',               group:'payroll'     },
+  { id:'att-summary',      label:'Attendance Summary',   icon:BarChart3,   desc:'Days present, absent, OT per employee',          group:'payroll'     },
+  { id:'ot-report',        label:'Overtime Report',      icon:Clock,       desc:'OT hours and earnings analysis',                 group:'payroll'     },
+  { id:'deductions',       label:'Deductions Report',    icon:Shield,      desc:'PF, ESI, PT breakdown',                          group:'payroll'     },
+  { id:'lop-report',       label:'LOP Report',           icon:Minus,       desc:'Loss of Pay analysis per employee',              group:'payroll'     },
+  { id:'bank-advice',      label:'Bank Transfer Advice', icon:CreditCard,  desc:'Net salary per account for bank upload',         group:'payroll'     },
+  { id:'multi-punch',      label:'Punch Detail Report',  icon:Fingerprint, desc:'Raw punch timeline per employee with anomaly detection', group:'attendance' },
 ]
+
+const PUNCH_TYPE_LABEL = { 0:'Check-In', 1:'Check-Out', 2:'Break Out', 3:'Break In', 4:'OT In', 5:'OT Out' }
+const PUNCH_TYPE_COLOR = { 0:'#34d399', 1:'#f87171', 2:'#fb923c', 3:'#60a5fa', 4:'#c084fc', 5:'#f472b6' }
+const FLAG_CFG = {
+  'no-out':    { label:'No checkout',   color:'#fb923c', bg:'rgba(251,146,60,.12)'  },
+  'odd-count': { label:'Odd punches',   color:'#facc15', bg:'rgba(250,204,21,.12)'  },
+  'duplicate': { label:'Duplicate',     color:'#f87171', bg:'rgba(248,113,113,.12)' },
+  'excess':    { label:'>6 punches',    color:'#c084fc', bg:'rgba(192,132,252,.12)' },
+}
 
 // ── Summary stat card ─────────────────────────────────────────────────────────
 function PayStatCard({ label, value, sub, icon: Icon, accent, index }) {
@@ -211,20 +222,25 @@ function PayrollRow({ rec, selected, onToggle }) {
                   {/* Salary calculation */}
                   <div>
                     <p style={{ fontSize:'0.7rem', fontFamily:'monospace', textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-dim)', fontWeight:700, marginBottom:10 }}>Salary Calculation</p>
-                    {[
-                      { label:'Salary',              value:fmt(rec.salary),      note:`(${rec.salaryType})`, color:'var(--text-secondary)' },
-                      { label:'Daily Rate',           value:fmt(p.dailyRate),     color:'var(--text-muted)' },
-                      { label:'Working Days',         value:`${p.workingDays} days`, color:'var(--text-muted)' },
-                      { label:'Effective Days',       value:`${fmtD(p.effectiveDays)} days`, color:'#34d399' },
-                      { label:'LOP Deduction',        value:p.lopDays > 0 ? `-${fmt(p.lopDays * p.dailyRate)}` : '—', color:p.lopDays > 0 ? '#f87171':'var(--text-dim)' },
-                      { label:'Gross Pay',            value:fmt(p.grossPay),      color:'var(--text-primary)', bold:true },
-                      { label:'Overtime',             value:p.otAmount > 0 ? `+${fmt(p.otAmount)}` : '—', color:'#c084fc' },
-                    ].map(x => (
-                      <div key={x.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'3px 0', borderBottom:'1px solid var(--border-soft)' }}>
-                        <span style={{ fontSize:'0.78rem', color:'var(--text-muted)' }}>{x.label} {x.note && <span style={{ color:'var(--text-dim)', fontSize:'0.68rem' }}>{x.note}</span>}</span>
-                        <span style={{ fontSize:'0.82rem', fontFamily:'monospace', fontWeight: x.bold ? 800 : 600, color:x.color }}>{x.value}</span>
-                      </div>
-                    ))}
+                    {(() => {
+                      const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+                      const lopAmt       = +(p.lopDays * p.dailyRate).toFixed(2)
+                      const rows = [
+                        { label:'Salary',         value:fmt(rec.salary),   note:`(${rec.salaryType})`,                                         color:'var(--text-secondary)' },
+                        { label:'Daily Rate',     value:fmt(p.dailyRate),  note: p.fullMonthWorkingDays ? `(÷ ${p.fullMonthWorkingDays} working days in month)` : '', color:'var(--text-muted)' },
+                        { label:'Working Days',   value:`${p.workingDays} days`, note:'(excl. week-off & holidays)',                           color:'var(--text-muted)' },
+                        { label:`${p.workingDays}d × ₹${p.dailyRate}`, value:fmt(rangeFullPay), note:'range pay before LOP',                   color:'var(--text-secondary)' },
+                        ...(p.lopDays > 0 ? [{ label:'LOP Deduction', value:`−${fmt(lopAmt)}`, note:`(${fmtD(p.lopDays)}d × ₹${p.dailyRate})`, color:'#f87171' }] : []),
+                        { label:'Gross Pay',      value:fmt(p.grossPay),   note:'',                                                            color:'var(--text-primary)', bold:true },
+                        { label:'Overtime',       value:p.otAmount > 0 ? `+${fmt(p.otAmount)}` : '—', note:'',                                color:'#c084fc' },
+                      ]
+                      return rows.map(x => (
+                        <div key={x.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'3px 0', borderBottom:'1px solid var(--border-soft)' }}>
+                          <span style={{ fontSize:'0.78rem', color:'var(--text-muted)' }}>{x.label} {x.note && <span style={{ color:'var(--text-dim)', fontSize:'0.68rem' }}>{x.note}</span>}</span>
+                          <span style={{ fontSize:'0.82rem', fontFamily:'monospace', fontWeight: x.bold ? 800 : 600, color:x.color }}>{x.value}</span>
+                        </div>
+                      ))
+                    })()}
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', marginTop:4,
                       borderTop:'2px solid var(--border)', background:`color-mix(in srgb,#34d399 5%,transparent)`, padding:'5px 8px', borderRadius:6 }}>
                       <span style={{ fontSize:'0.82rem', fontWeight:700, color:'var(--text-primary)' }}>Net Pay</span>
@@ -273,20 +289,30 @@ function PayrollRow({ rec, selected, onToggle }) {
 
 // ── Excel export functions ────────────────────────────────────────────────────
 function buildPayrollRegisterSheet(rows, period) {
-  const header = ['#','Code','Name','Dept','Designation','Salary Type','Salary','Working Days','Effective Days','LOP Days',
-    'Present','Late (Charged)','Late* (Pardoned)','Half Day','Absent','Paid Leave','Holiday','Week Off','Worked Hours','OT Hours',
-    'Gross Pay','OT Amount','PF','ESI','Prof Tax','Total Deductions','Net Pay','PF/UAN','Bank Name','Account No','IFSC']
-  const data = rows.map((r,i) => [
-    i+1, r.code, r.name, r.department||'', r.designation||'', r.salaryType, r.salary||0,
-    r.payroll.workingDays, r.payroll.effectiveDays, r.payroll.lopDays,
-    r.attendance.present - (r.attendance.pardonedLate||0), r.attendance.late, r.attendance.pardonedLate||0, r.attendance.halfDay, r.attendance.absent,
-    r.attendance.paidLeave, r.attendance.holiday, r.attendance.weekOff,
-    +(r.attendance.workedMinutes/60).toFixed(2), +(r.attendance.overtimeMinutes/60).toFixed(2),
-    r.payroll.grossPay, r.payroll.otAmount,
-    r.payroll.deductions.pf, r.payroll.deductions.esi, r.payroll.deductions.pt,
-    r.payroll.deductions.total, r.payroll.netPay,
-    r.uanNumber||'', r.bankDetails?.bankName||'', r.bankDetails?.accountNumber||'', r.bankDetails?.ifscCode||'',
-  ])
+  const header = [
+    '#','Code','Name','Dept','Designation','Salary Type','Monthly Salary',
+    'Month Working Days','Range Working Days','Effective Days (Paid)','LOP Days','Daily Rate',
+    'Range Full Pay','LOP Amount','Gross Pay','OT Amount',
+    'Present (On-time)','Late (Charged)','Late* (Pardoned)','Half Day','Absent','Paid Leave','Holiday','Week Off',
+    'Worked Hours','OT Hours',
+    'PF (12%)','ESI (0.75%)','Prof Tax','Total Deductions','Net Pay',
+    'PF/UAN','Bank Name','Account No','IFSC',
+  ]
+  const data = rows.map((r,i) => {
+    const p = r.payroll, at = r.attendance
+    const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+    const lopAmt       = +(p.lopDays * p.dailyRate).toFixed(2)
+    return [
+      i+1, r.code, r.name, r.department||'', r.designation||'', r.salaryType, r.salary||0,
+      p.fullMonthWorkingDays || p.workingDays, p.workingDays, p.effectiveDays, p.lopDays, p.dailyRate,
+      rangeFullPay, lopAmt, p.grossPay, p.otAmount,
+      at.present - (at.pardonedLate||0), at.late, at.pardonedLate||0, at.halfDay, at.absent,
+      at.paidLeave, at.holiday, at.weekOff,
+      +(at.workedMinutes/60).toFixed(2), +(at.overtimeMinutes/60).toFixed(2),
+      p.deductions.pf, p.deductions.esi, p.deductions.pt, p.deductions.total, p.netPay,
+      r.uanNumber||'', r.bankDetails?.bankName||'', r.bankDetails?.accountNumber||'', r.bankDetails?.ifscCode||'',
+    ]
+  })
   return [header, ...data]
 }
 
@@ -304,11 +330,11 @@ function buildAttSummarySheet(rows) {
 }
 
 function buildOTSheet(rows) {
-  const header = ['#','Code','Name','Department','OT Minutes','OT Hours','Daily Rate','OT Multiplier','OT Amount']
+  const header = ['#','Code','Name','Department','OT Minutes','OT Hours','Hourly Rate','OT Amount']
   return [header, ...rows.filter(r => r.attendance.overtimeMinutes > 0).map((r,i) => [
     i+1, r.code, r.name, r.department||'',
     r.attendance.overtimeMinutes, +(r.attendance.overtimeMinutes/60).toFixed(2),
-    r.payroll.hourlyRate, '1.5x', r.payroll.otAmount,
+    r.payroll.hourlyRate, r.payroll.otAmount,
   ])]
 }
 
@@ -323,16 +349,56 @@ function buildDeductionsSheet(rows) {
 }
 
 function buildLOPSheet(rows) {
-  const header = ['#','Code','Name','Department','Salary','Daily Rate','Absent (Full Day)','Absent (Half-Day Weekday)','Total LOP Days','LOP Amount','Gross Pay','Net Pay']
+  const header = ['#','Code','Name','Department','Monthly Salary','Month Working Days','Daily Rate','Absent (Full Day)','Absent (Half-Day Weekday)','Half Day Worked','Total LOP Days','Range Full Pay','LOP Amount','Gross Pay','Net Pay']
   return [header, ...rows.filter(r => r.payroll.lopDays > 0).map((r,i) => {
-    const hdAbs = r.attendance.halfDayWeekdayAbsent || 0
-    const fullAbs = r.attendance.absent - hdAbs
+    const p = r.payroll, at = r.attendance
+    const hdAbs = at.halfDayWeekdayAbsent || 0
+    const fullAbs = at.absent - hdAbs
+    const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+    const lopAmt       = +(p.lopDays * p.dailyRate).toFixed(2)
     return [
-      i+1, r.code, r.name, r.department||'', r.salary||0, r.payroll.dailyRate,
-      fullAbs, hdAbs, r.payroll.lopDays, +(r.payroll.lopDays * r.payroll.dailyRate).toFixed(2),
-      r.payroll.grossPay, r.payroll.netPay,
+      i+1, r.code, r.name, r.department||'', r.salary||0,
+      p.fullMonthWorkingDays || p.workingDays, p.dailyRate,
+      fullAbs, hdAbs, at.halfDay,
+      p.lopDays, rangeFullPay, lopAmt, p.grossPay, p.netPay,
     ]
   })]
+}
+
+function buildMultiPunchSheet(punchRows, startDate, endDate) {
+  const DOW   = ['Su','Mo','Tu','We','Th','Fr','Sa']
+  const dates = []
+  const _cur  = new Date(startDate + 'T00:00:00')
+  const _end  = new Date(endDate   + 'T00:00:00')
+  const _lds = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  while (_cur <= _end) { dates.push(_lds(_cur)); _cur.setDate(_cur.getDate()+1) }
+
+  const dateHdrs = dates.map(d => {
+    const dt = new Date(d + 'T00:00:00')
+    return `${String(dt.getDate()).padStart(2,'0')}\n${DOW[dt.getDay()]}`
+  })
+  const header = ['#','Code','Name','Department','Shift', ...dateHdrs, 'Total Punches','Flagged Days']
+  const rows = punchRows.map((emp, i) => {
+    const dayMap = {}
+    emp.days.forEach(d => { dayMap[d.date] = d })
+    const dayCells = dates.map(date => {
+      const day = dayMap[date]
+      if (!day || day.punchCount === 0) return ''
+      const PTLBL = { 0:'IN', 1:'OUT', 2:'BRK↑', 3:'BRK↓', 4:'OT↑', 5:'OT↓' }
+      const parts = [`${day.punchCount} punch${day.punchCount !== 1 ? 'es' : ''}`]
+      ;(day.punches || []).forEach(p => parts.push(`${p.time} ${PTLBL[p.punchType] || '?'}`))
+      if (day.workedMinutes) parts.push(`${Math.floor(day.workedMinutes/60)}h ${day.workedMinutes%60}m`)
+      if (day.flags?.length) parts.push(day.flags.join(', '))
+      return parts.join('\n')
+    })
+    return [
+      i+1, emp.code||'', emp.name, emp.department||'', emp.shiftName||'',
+      ...dayCells,
+      emp.totalPunches || 0,
+      emp.flaggedDays  || 0,
+    ]
+  })
+  return [header, ...rows]
 }
 
 function buildBankAdviceSheet(rows) {
@@ -428,22 +494,42 @@ function printReport(rows, reportType, period, org) {
   if (reportType === 'payroll-register' || reportType === 'salary-slip') {
     tableHtml = `
       <table><thead><tr>
-        <th>#</th><th>Code</th><th>Name</th><th>Dept</th><th>Gross</th><th>OT</th><th>PF</th><th>ESI</th><th>PT</th><th>Deductions</th><th>Net Pay</th>
+        <th>#</th><th>Code</th><th>Name</th><th>Dept</th>
+        <th>Salary</th><th>Daily Rate</th><th>Work Days</th><th>Effective Days</th><th>LOP Days</th>
+        <th>Range Pay</th><th>LOP Amt</th><th>Gross</th><th>OT</th>
+        <th>PF</th><th>ESI</th><th>PT</th><th>Deductions</th><th>Net Pay</th>
       </tr></thead><tbody>
-      ${rows.map((r,i) => `<tr ${i%2===0?'class="alt"':''}>
-        <td>${i+1}</td><td>${r.code||''}</td><td>${r.name}</td><td>${r.department||'—'}</td>
-        <td>${fmtN(r.payroll.grossPay)}</td><td>${fmtN(r.payroll.otAmount)}</td>
-        <td>${fmtN(r.payroll.deductions.pf)}</td><td>${fmtN(r.payroll.deductions.esi)}</td><td>${fmtN(r.payroll.deductions.pt)}</td>
-        <td>${fmtN(r.payroll.deductions.total)}</td><td class="net">${fmtN(r.payroll.netPay)}</td>
-      </tr>`).join('')}
+      ${rows.map((r,i) => {
+        const p = r.payroll
+        const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+        const lopAmt = +(p.lopDays * p.dailyRate).toFixed(2)
+        return `<tr ${i%2===0?'class="alt"':''}>
+          <td>${i+1}</td><td>${r.code||''}</td><td>${r.name}</td><td>${r.department||'—'}</td>
+          <td>${fmtN(r.salary)}</td>
+          <td title="Monthly salary ÷ ${p.fullMonthWorkingDays||p.workingDays} month working days">${fmtN(p.dailyRate)}</td>
+          <td>${p.workingDays}d</td>
+          <td style="color:#16a34a">${p.effectiveDays}d</td>
+          <td style="color:#c0392b">${p.lopDays > 0 ? p.lopDays+'d' : '—'}</td>
+          <td>${fmtN(rangeFullPay)}</td>
+          <td style="color:#c0392b">${p.lopDays > 0 ? '−'+fmtN(lopAmt) : '—'}</td>
+          <td><strong>${fmtN(p.grossPay)}</strong></td>
+          <td>${p.otAmount > 0 ? '+'+fmtN(p.otAmount) : '—'}</td>
+          <td>${fmtN(p.deductions.pf)}</td><td>${fmtN(p.deductions.esi)}</td><td>${fmtN(p.deductions.pt)}</td>
+          <td style="color:#c0392b">${fmtN(p.deductions.total)}</td>
+          <td class="net"><strong>${fmtN(p.netPay)}</strong></td>
+        </tr>`
+      }).join('')}
       </tbody><tfoot><tr>
         <td colspan="4"><strong>TOTAL (${rows.length} employees)</strong></td>
+        <td></td><td></td><td></td><td></td><td></td>
+        <td><strong>${fmtN(rows.reduce((s,r)=>s+(r.payroll.workingDays*r.payroll.dailyRate),0))}</strong></td>
+        <td style="color:#c0392b"><strong>−${fmtN(rows.reduce((s,r)=>s+(r.payroll.lopDays*r.payroll.dailyRate),0))}</strong></td>
         <td><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.grossPay,0))}</strong></td>
         <td><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.otAmount,0))}</strong></td>
         <td><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.deductions.pf,0))}</strong></td>
         <td><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.deductions.esi,0))}</strong></td>
         <td><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.deductions.pt,0))}</strong></td>
-        <td><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.deductions.total,0))}</strong></td>
+        <td style="color:#c0392b"><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.deductions.total,0))}</strong></td>
         <td class="net"><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.netPay,0))}</strong></td>
       </tr></tfoot></table>`
   } else if (reportType === 'att-summary') {
@@ -461,12 +547,36 @@ function printReport(rows, reportType, period, org) {
     }).join('')}</tbody></table>`
   } else if (reportType === 'lop-report') {
     const lopRows = rows.filter(r => r.payroll.lopDays > 0)
-    tableHtml = `<table><thead><tr><th>#</th><th>Code</th><th>Name</th><th>Dept</th><th>Salary</th><th>Daily Rate</th><th>LOP Days</th><th>LOP Amount</th><th>Net Pay</th></tr></thead><tbody>
-    ${lopRows.map((r,i) => `<tr ${i%2===0?'class="alt"':''}>
-      <td>${i+1}</td><td>${r.code||''}</td><td>${r.name}</td><td>${r.department||'—'}</td>
-      <td>${fmtN(r.salary)}</td><td>${fmtN(r.payroll.dailyRate)}</td><td style="color:#c0392b">${r.payroll.lopDays}</td>
-      <td style="color:#c0392b">${fmtN(r.payroll.lopDays*r.payroll.dailyRate)}</td><td>${fmtN(r.payroll.netPay)}</td>
-    </tr>`).join('')}</tbody></table>`
+    tableHtml = `<table><thead><tr>
+      <th>#</th><th>Code</th><th>Name</th><th>Dept</th><th>Salary</th>
+      <th>Month Days</th><th>Daily Rate</th><th>Work Days</th>
+      <th>Range Pay</th><th>LOP Days</th><th>LOP Amount</th><th>Gross</th><th>Net Pay</th>
+    </tr></thead><tbody>
+    ${lopRows.map((r,i) => {
+      const p = r.payroll
+      const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+      const lopAmt = +(p.lopDays * p.dailyRate).toFixed(2)
+      return `<tr ${i%2===0?'class="alt"':''}>
+        <td>${i+1}</td><td>${r.code||''}</td><td>${r.name}</td><td>${r.department||'—'}</td>
+        <td>${fmtN(r.salary)}</td>
+        <td>${p.fullMonthWorkingDays||p.workingDays}d</td>
+        <td>${fmtN(p.dailyRate)}</td>
+        <td>${p.workingDays}d</td>
+        <td>${fmtN(rangeFullPay)}</td>
+        <td style="color:#c0392b">${p.lopDays}d</td>
+        <td style="color:#c0392b">−${fmtN(lopAmt)}</td>
+        <td><strong>${fmtN(p.grossPay)}</strong></td>
+        <td class="net"><strong>${fmtN(p.netPay)}</strong></td>
+      </tr>`
+    }).join('')}
+    </tbody><tfoot><tr>
+      <td colspan="8"><strong>TOTAL (${lopRows.length} employees with LOP)</strong></td>
+      <td><strong>${fmtN(lopRows.reduce((s,r)=>s+(r.payroll.workingDays*r.payroll.dailyRate),0))}</strong></td>
+      <td></td>
+      <td style="color:#c0392b"><strong>−${fmtN(lopRows.reduce((s,r)=>s+(r.payroll.lopDays*r.payroll.dailyRate),0))}</strong></td>
+      <td><strong>${fmtN(lopRows.reduce((s,r)=>s+r.payroll.grossPay,0))}</strong></td>
+      <td class="net"><strong>${fmtN(lopRows.reduce((s,r)=>s+r.payroll.netPay,0))}</strong></td>
+    </tr></tfoot></table>`
   } else if (reportType === 'bank-advice') {
     const bankRows = rows.filter(r => r.bankDetails?.accountNumber)
     tableHtml = `<table><thead><tr><th>#</th><th>Code</th><th>Name</th><th>Bank</th><th>Account No</th><th>IFSC</th><th>Net Pay</th></tr></thead><tbody>
@@ -474,6 +584,73 @@ function printReport(rows, reportType, period, org) {
       <td>${r.bankDetails.bankName||''}</td><td>${r.bankDetails.accountNumber}</td><td>${r.bankDetails.ifscCode||''}</td>
       <td class="net"><strong>${fmtN(r.payroll.netPay)}</strong></td></tr>`).join('')}</tbody>
     <tfoot><tr><td colspan="6"><strong>Total Transfer</strong></td><td class="net"><strong>${fmtN(bankRows.reduce((s,r)=>s+r.payroll.netPay,0))}</strong></td></tr></tfoot></table>`
+  } else if (reportType === 'multi-punch') {
+    const DOW_P     = ['Su','Mo','Tu','We','Th','Fr','Sa']
+    const flagAbbr  = { 'no-out':'NO', 'odd-count':'OD', 'duplicate':'DU', 'excess':'EX' }
+    const flagColor = { 'no-out':'#fb923c', 'odd-count':'#e6b800', 'duplicate':'#f87171', 'excess':'#c084fc' }
+    const cntColor  = c => c === 1 ? '#fb923c' : c % 2 !== 0 ? '#e6b800' : c > 6 ? '#c084fc' : '#34d399'
+    const pDates    = []
+    const _pc = new Date(period.startDate + 'T00:00:00')
+    const _pe = new Date(period.endDate   + 'T00:00:00')
+    const _ldsp = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    while (_pc <= _pe) { pDates.push(_ldsp(_pc)); _pc.setDate(_pc.getDate()+1) }
+    tableHtml = `
+      <table class="punch-tbl">
+        <thead><tr>
+          <th>#</th>
+          <th>Code</th>
+          <th>Name</th>
+          <th>Dept</th>
+          ${pDates.map(d => {
+            const dt = new Date(d + 'T00:00:00')
+            const isWknd = dt.getDay()===0||dt.getDay()===6
+            return `<th class="day-hdr${isWknd?' weekend':''}">${String(dt.getDate()).padStart(2,'0')}<br><span style="font-weight:400;font-size:7px">${DOW_P[dt.getDay()]}</span></th>`
+          }).join('')}
+          <th title="Total Punches">Total</th>
+          <th title="Flagged Days">Flag</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map((emp, idx) => {
+            const dayMap = {}; emp.days.forEach(d => { dayMap[d.date] = d })
+            return `<tr class="${idx%2===0?'alt':''}">
+              <td class="idx">${idx+1}</td>
+              <td class="code">${emp.code||''}</td>
+              <td class="name">${emp.name}</td>
+              <td class="dept">${emp.department||'—'}</td>
+              ${pDates.map(date => {
+                const day = dayMap[date]
+                const dt  = new Date(date + 'T00:00:00')
+                const isWknd = dt.getDay()===0||dt.getDay()===6
+                if (!day || day.punchCount === 0) return `<td class="day-cell${isWknd?' wknd':''}">—</td>`
+                const PTCOLOR_P = { 0:'#34d399', 1:'#f87171', 2:'#fb923c', 3:'#60a5fa', 4:'#c084fc', 5:'#f472b6' }
+                const cc = cntColor(day.punchCount)
+                return `<td class="day-cell${isWknd?' wknd':''}">
+                  <span class="p-cnt" style="color:${cc};display:block;text-align:center">${day.punchCount}</span>
+                  ${(day.punches||[]).map(p => {
+                    const pc = PTCOLOR_P[p.punchType] || '#888'
+                    return `<div style="display:flex;align-items:center;gap:2px;justify-content:center">
+                      <span style="width:3px;height:3px;border-radius:50%;background:${pc};flex-shrink:0"></span>
+                      <span class="p-time" style="color:${pc}">${p.time}</span>
+                    </div>`
+                  }).join('')}
+                  ${(day.flags||[]).length ? `<div style="display:flex;gap:1px;flex-wrap:wrap;justify-content:center;margin-top:2px">${(day.flags||[]).map(f=>`<span class="p-flag" style="background:${flagColor[f]||'#888'}22;color:${flagColor[f]||'#888'}">${flagAbbr[f]||f}</span>`).join('')}</div>` : ''}
+                </td>`
+              }).join('')}
+              <td class="sum" style="color:#58a6ff">${emp.totalPunches||0}</td>
+              <td class="sum" style="color:${(emp.flaggedDays||0)>0?'#f87171':'#6b7280'}">${emp.flaggedDays||0}</td>
+            </tr>`
+          }).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:10px;padding:8px 12px;background:#f5f5fb;border:1px solid #dde;border-radius:6px;font-size:8.5px;color:#555;display:flex;gap:16px;flex-wrap:wrap">
+        <span><strong>Count color:</strong></span>
+        <span style="color:#34d399;font-weight:700">■</span> Even — normal &nbsp;
+        <span style="color:#fb923c;font-weight:700">■</span> 1 punch (no check-out) &nbsp;
+        <span style="color:#e6b800;font-weight:700">■</span> Odd count &nbsp;
+        <span style="color:#c084fc;font-weight:700">■</span> &gt;6 punches &nbsp;|&nbsp;
+        <strong>Flag codes:</strong> &nbsp;
+        <strong>NO</strong>=No checkout &nbsp;<strong>OD</strong>=Odd count &nbsp;<strong>DU</strong>=Duplicate (&lt;2 min) &nbsp;<strong>EX</strong>=Excess (&gt;6)
+      </div>`
   } else {
     tableHtml = `<p>Preview not available for this report type. Use Excel download.</p>`
   }
@@ -495,13 +672,30 @@ function printReport(rows, reportType, period, org) {
     abbrSections.map(s => `<span class="abbr-sec">${s.title}:</span> ${
       s.items.map(i => `<span class="abbr-chip">${i.abbr}</span> ${i.label}`).join(' &nbsp; ')
     }`).join('<br>')
-  }<br><em>Net Pay = (Salary − LOP) + OT − PF − ESI − PT &nbsp;|&nbsp; Daily Rate = Monthly ÷ 26</em></div>`
+  }<br>
+  <div class="abbr-formula">
+    <strong>Daily Rate</strong> = Monthly Salary ÷ Full-Month Working Days (actual calendar month, excl. week-offs &amp; holidays) &nbsp;|&nbsp;
+    <strong>Range Pay</strong> = Working Days in Range × Daily Rate &nbsp;|&nbsp;
+    <strong>LOP Amount</strong> = LOP Days × Daily Rate &nbsp;|&nbsp;
+    <strong>Gross Pay</strong> = Range Pay − LOP Amount &nbsp;|&nbsp;
+    <strong>Net Pay</strong> = Gross + OT − PF − ESI − PT
+  </div></div>`
+
+  const isPunchGrid  = reportType === 'multi-punch'
+  const _pdc         = isPunchGrid ? pDates.length : 0
+  const _fixMm       = 115
+  const _perDMm      = _pdc <= 15 ? 16 : _pdc <= 20 ? 14 : _pdc <= 25 ? 12 : 11
+  const _pgWmm       = _pdc > 0 ? Math.max(257, _fixMm + _pdc * _perDMm) : 420
+  const _pgHmm       = 190
+  const _pFs         = _pdc <= 15 ? 8.5 : _pdc <= 20 ? 8 : _pdc <= 25 ? 7.5 : 7
+  const _pTFs        = _pdc <= 15 ? 7   : _pdc <= 20 ? 6.5 : 6
+  const _pageSize    = isPunchGrid ? `${_pgWmm}mm ${_pgHmm}mm` : 'A4 portrait'
 
   const win = window.open('', '_blank')
   win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title} — ${period.startDate} to ${period.endDate}</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { font-family:'Segoe UI',Arial,sans-serif; font-size:11px; color:#1a1a2e; background:#fff; padding:24px 28px; }
+    body { font-family:'Segoe UI',Arial,sans-serif; font-size:${isPunchGrid?`${_pFs}px`:'11px'}; color:#1a1a2e; background:#fff; padding:${isPunchGrid?'12px 14px':'24px 28px'}; }
 
     /* ── Header card ── */
     .header-card {
@@ -564,11 +758,30 @@ function printReport(rows, reportType, period, org) {
     .powered-tagline { font-size:8.5px; color:#6b7280; margin-top:1px; font-style:italic; }
     .powered-right { font-size:9px; color:#888; text-align:right; }
 
+    /* ── Punch detail table ── */
+    .punch-tbl { table-layout:auto; width:auto; border-collapse:collapse; font-size:${_pFs}px; margin-top:4px; }
+    .punch-tbl th { background:#1a1a2e; color:#fff; font-weight:700; padding:4px 6px;
+      text-align:center; font-size:${_pFs}px; white-space:nowrap; }
+    .punch-tbl th.day-hdr { padding:3px 4px; }
+    .punch-tbl th.day-hdr.weekend { background:#2d2d4e; }
+    .punch-tbl td { padding:3px 5px; border-bottom:1px solid #eee; vertical-align:top; white-space:nowrap; font-size:${_pFs}px; }
+    .punch-tbl tr.alt td { background:#f9f9fc; }
+    .punch-tbl td.idx  { text-align:center; color:#666; }
+    .punch-tbl td.code { text-align:center; font-family:monospace; color:#555; }
+    .punch-tbl td.name { text-align:left; font-weight:600; }
+    .punch-tbl td.dept { text-align:left; color:#555; }
+    .punch-tbl td.day-cell { text-align:center; padding:3px 4px; }
+    .punch-tbl td.day-cell.wknd { background:rgba(107,114,128,.06); }
+    .punch-tbl td.sum { text-align:center; font-weight:700; padding:3px 6px; }
+    .punch-tbl .p-time { font-size:${_pTFs}px; font-family:monospace; font-weight:600; line-height:1.3; }
+    .punch-tbl .p-cnt  { font-size:${Math.round(_pFs * 1.2)}px; font-weight:800; line-height:1; margin-bottom:2px; }
+    .punch-tbl .p-flag { font-size:${Math.max(5, _pTFs - 1)}px; font-weight:700; padding:0 2px; border-radius:2px; }
+
     @media print {
       body { padding:10px 14px; }
       .header-card { box-shadow:none; }
       button { display:none !important; }
-      @page { margin:10mm; }
+      @page { size:${_pageSize}; margin:8mm; }
     }
   </style></head><body>
 
@@ -641,15 +854,41 @@ function printReport(rows, reportType, period, org) {
 }
 
 // ── Reports panel ─────────────────────────────────────────────────────────────
-function ReportsPanel({ data, selectedIds, period, org }) {
+function ReportsPanel({ data, selectedIds, period, org, orgId }) {
   const [reportType, setReportType] = useState('payroll-register')
-  const [scope, setScope] = useState('all')    // 'all' | 'selected'
+  const [scope, setScope]           = useState('all')
+  // Punch report own state
+  const [punchData,    setPunchData]    = useState(null)
+  const [punchLoading, setPunchLoading] = useState(false)
+  const [punchError,   setPunchError]   = useState(null)
+  const [punchMinP,    setPunchMinP]    = useState(1)
+  const [punchFlagged, setPunchFlagged] = useState(false)
+  const [punchEmpQ,    setPunchEmpQ]    = useState('')
 
+  const isPunch = reportType === 'multi-punch'
+
+  async function loadPunchReport() {
+    if (!orgId) return
+    setPunchLoading(true); setPunchError(null); setPunchData(null)
+    try {
+      const p = new URLSearchParams({ startDate: period.startDate, endDate: period.endDate, minPunches: punchMinP, flaggedOnly: punchFlagged })
+      const r = await api.get(`/organizations/${orgId}/attendance/punch-report?${p}`)
+      setPunchData(r)
+    } catch(e) { setPunchError(e.message) }
+    finally { setPunchLoading(false) }
+  }
+
+  // Payroll-report rows (scope filter)
   const rows = scope === 'selected' && selectedIds.size > 0
     ? data.filter(r => selectedIds.has(r.employeeId))
     : data
-
   const selCount = selectedIds.size
+
+  // Punch report display rows (employee search filter)
+  const punchRows = (punchData?.data || []).filter(e =>
+    !punchEmpQ || e.name.toLowerCase().includes(punchEmpQ.toLowerCase()) || e.code.toLowerCase().includes(punchEmpQ.toLowerCase())
+  )
+  const ps = punchData?.summary || {}
 
   return (
     <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16,
@@ -661,74 +900,208 @@ function ReportsPanel({ data, selectedIds, period, org }) {
         </div>
         <div>
           <p style={{ fontWeight:700, fontSize:'0.9rem', color:'var(--text-primary)' }}>Reports & Downloads</p>
-          <p style={{ fontSize:'0.72rem', color:'var(--text-dim)' }}>Generate and export payroll reports</p>
+          <p style={{ fontSize:'0.72rem', color:'var(--text-dim)' }}>Generate and export payroll &amp; attendance reports</p>
         </div>
       </div>
 
-      {/* Report type grid */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:8 }}>
-        {REPORT_TYPES.map(rt => {
-          const Icon = rt.icon
-          const sel = reportType === rt.id
-          return (
-            <button key={rt.id} onClick={() => setReportType(rt.id)}
-              style={{
-                display:'flex', flexDirection:'column', gap:5, padding:'10px 12px', borderRadius:10, cursor:'pointer', textAlign:'left', transition:'all .15s',
-                background: sel ? 'color-mix(in srgb,var(--accent) 10%,transparent)' : 'var(--bg-surface2)',
-                border:`1px solid ${sel ? 'var(--accent)' : 'var(--border)'}`,
-              }}>
-              <Icon size={14} style={{ color: sel ? 'var(--accent)' : 'var(--text-muted)' }}/>
-              <p style={{ fontSize:'0.775rem', fontWeight:700, color: sel ? 'var(--accent)' : 'var(--text-secondary)' }}>{rt.label}</p>
-              <p style={{ fontSize:'0.65rem', color:'var(--text-dim)', lineHeight:1.3 }}>{rt.desc}</p>
+      {/* Report type grid — grouped */}
+      {['payroll','attendance'].map(grp => (
+        <div key={grp}>
+          <p style={{ fontSize:'0.6rem', fontFamily:'monospace', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'var(--text-dim)', marginBottom:6 }}>
+            {grp === 'payroll' ? 'Payroll Reports' : 'Attendance Reports'}
+          </p>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:8 }}>
+            {REPORT_TYPES.filter(rt => rt.group === grp).map(rt => {
+              const Icon = rt.icon
+              const sel = reportType === rt.id
+              return (
+                <button key={rt.id} onClick={() => setReportType(rt.id)}
+                  style={{
+                    display:'flex', flexDirection:'column', gap:5, padding:'10px 12px', borderRadius:10, cursor:'pointer', textAlign:'left', transition:'all .15s',
+                    background: sel ? 'color-mix(in srgb,var(--accent) 10%,transparent)' : 'var(--bg-surface2)',
+                    border:`1px solid ${sel ? 'var(--accent)' : 'var(--border)'}`,
+                  }}>
+                  <Icon size={14} style={{ color: sel ? 'var(--accent)' : 'var(--text-muted)' }}/>
+                  <p style={{ fontSize:'0.775rem', fontWeight:700, color: sel ? 'var(--accent)' : 'var(--text-secondary)' }}>{rt.label}</p>
+                  <p style={{ fontSize:'0.65rem', color:'var(--text-dim)', lineHeight:1.3 }}>{rt.desc}</p>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+
+      {/* ── Punch Report controls + table ── */}
+      {isPunch && (
+        <div style={{ display:'flex', flexDirection:'column', gap:12, paddingTop:8, borderTop:'1px solid var(--border-soft)' }}>
+          {/* Filters row */}
+          <div style={{ display:'flex', alignItems:'flex-end', gap:10, flexWrap:'wrap' }}>
+            <div>
+              <label style={{ fontSize:'0.68rem', fontFamily:'monospace', fontWeight:700, textTransform:'uppercase', color:'var(--text-dim)', display:'block', marginBottom:4 }}>Min Punches</label>
+              <input type="number" min="1" max="20" value={punchMinP} onChange={e => setPunchMinP(Math.max(1, +e.target.value))}
+                className="field-input" style={{ width:80, fontFamily:'monospace', fontWeight:700 }}/>
+            </div>
+            <label style={{ display:'flex', alignItems:'center', gap:7, cursor:'pointer', userSelect:'none', padding:'7px 12px', borderRadius:9,
+              border:`1px solid ${punchFlagged ? '#f87171' : 'var(--border)'}`, background: punchFlagged ? 'rgba(248,113,113,.06)' : 'var(--bg-surface2)', marginBottom:1 }}>
+              <input type="checkbox" checked={punchFlagged} onChange={e => setPunchFlagged(e.target.checked)} style={{ accentColor:'#f87171' }}/>
+              <span style={{ fontSize:'0.8rem', color: punchFlagged ? '#f87171' : 'var(--text-secondary)', fontWeight:600 }}>Anomalies only</span>
+            </label>
+            <button onClick={loadPunchReport} disabled={punchLoading}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 16px', borderRadius:9, cursor:'pointer',
+                background:'var(--accent)', color:'#000', border:'none', fontWeight:700, fontSize:'0.82rem', opacity: punchLoading ? 0.6 : 1 }}>
+              <Fingerprint size={13}/> {punchLoading ? 'Loading…' : 'Generate Report'}
             </button>
-          )
-        })}
-      </div>
+            {punchData && (
+              <>
+                <SearchBox value={punchEmpQ} onChange={e => setPunchEmpQ(e.target.value)} placeholder="Search employee…" style={{ minWidth:180 }}/>
+                <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
+                  <button onClick={() => { const wb = XLSX.utils.book_new(); const ws = XLSX.utils.aoa_to_sheet([...buildOrgInfoRows(org, period,'Punch Detail Report', punchRows.length), ...buildMultiPunchSheet(punchRows, period.startDate, period.endDate)]); XLSX.utils.book_append_sheet(wb, ws,'Punch Detail'); XLSX.writeFile(wb, `punch_report_${period.startDate}_${period.endDate}.xlsx`) }}
+                    style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, cursor:'pointer', background:'rgba(52,211,153,.1)', color:'#34d399', border:'1px solid rgba(52,211,153,.25)', fontSize:'0.8rem', fontWeight:700 }}>
+                    <Download size={13}/> Excel
+                  </button>
+                  <button onClick={() => printReport(punchRows, 'multi-punch', period, org)}
+                    style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, cursor:'pointer', background:'rgba(248,113,113,.1)', color:'#f87171', border:'1px solid rgba(248,113,113,.25)', fontSize:'0.8rem', fontWeight:700 }}>
+                    <Printer size={13}/> PDF
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
-      {/* Scope + download */}
-      <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', paddingTop:8, borderTop:'1px solid var(--border-soft)' }}>
-        <div style={{ display:'flex', gap:8 }}>
-          {[{v:'all',label:`All (${data.length})`},{v:'selected',label:`Selected (${selCount})`}].map(s => (
-            <button key={s.v} onClick={() => setScope(s.v)}
-              disabled={s.v === 'selected' && selCount === 0}
-              style={{
-                padding:'5px 12px', borderRadius:8, fontSize:'0.78rem', fontWeight:600, cursor:'pointer', transition:'all .12s',
-                background: scope===s.v ? 'var(--accent)' : 'var(--bg-surface2)',
-                color: scope===s.v ? '#000' : selCount===0&&s.v==='selected' ? 'var(--text-dim)' : 'var(--text-secondary)',
-                border:`1px solid ${scope===s.v ? 'var(--accent)' : 'var(--border)'}`,
-                opacity: s.v==='selected' && selCount===0 ? 0.45 : 1,
-              }}>
-              {s.label}
+          {punchError && <p style={{ fontSize:'0.82rem', color:'#f87171' }}>{punchError}</p>}
+
+          {/* Summary chips */}
+          {punchData && (
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {[
+                { label:'Employees', v: ps.employees, color:'#58a6ff' },
+                { label:'Total Days', v: ps.totalDays, color:'var(--text-secondary)' },
+                { label:'Total Punches', v: ps.totalPunches, color:'var(--accent)' },
+                { label:'Flagged Days', v: ps.totalFlagged, color:'#f87171' },
+                { label:'No-checkout', v: ps.noOut, color:'#fb923c' },
+                { label:'Odd Count', v: ps.oddCount, color:'#facc15' },
+                { label:'Duplicates', v: ps.duplicate, color:'#f87171' },
+                { label:'>6 Punches', v: ps.excess, color:'#c084fc' },
+              ].map(c => (
+                <div key={c.label} style={{ padding:'5px 12px', borderRadius:8, background:'var(--bg-surface2)', border:'1px solid var(--border)' }}>
+                  <span style={{ fontSize:'0.72rem', color:'var(--text-dim)' }}>{c.label}: </span>
+                  <span style={{ fontSize:'0.82rem', fontWeight:800, fontFamily:'monospace', color: c.v > 0 ? c.color : 'var(--text-dim)' }}>{c.v ?? 0}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Punch table */}
+          {punchData && punchRows.length === 0 && <p style={{ fontSize:'0.82rem', color:'var(--text-dim)', fontStyle:'italic' }}>No records found.</p>}
+          {punchRows.length > 0 && (
+            <div style={{ overflowX:'auto' }}>
+              <table className="tbl" style={{ minWidth:900 }}>
+                <thead>
+                  <tr>
+                    {['Employee','Date','Punches','Resolved In','Resolved Out','Worked','Flags'].map(h => (
+                      <th key={h} className="tbl-head">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {punchRows.flatMap(emp => emp.days.map((day, di) => (
+                    <tr key={emp.employeeId+day.date} className="tbl-row">
+                      {di === 0
+                        ? <td className="tbl-cell" rowSpan={emp.days.length} style={{ verticalAlign:'top', borderRight:'1px solid var(--border-soft)' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                              <UserAvatar name={emp.name} photoUrl={emp.photo} size={26}/>
+                              <div>
+                                <p style={{ fontSize:'0.8125rem', fontWeight:700, color:'var(--text-primary)' }}>{emp.name}</p>
+                                <p style={{ fontSize:'0.68rem', fontFamily:'monospace', color:'var(--text-muted)' }}>{emp.code}</p>
+                                {emp.shiftName && <p style={{ fontSize:'0.65rem', color:'var(--text-dim)' }}>{emp.shiftName}</p>}
+                              </div>
+                            </div>
+                          </td>
+                        : null}
+                      <td className="tbl-cell" style={{ fontFamily:'monospace', fontSize:'0.8rem', color:'var(--text-muted)' }}>{day.date}</td>
+                      <td className="tbl-cell">
+                        <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                          {day.punches.map((p, pi) => (
+                            <div key={pi} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:1,
+                              padding:'3px 6px', borderRadius:6, border:`1px solid ${PUNCH_TYPE_COLOR[p.punchType] || 'var(--border)'}44`,
+                              background:`${PUNCH_TYPE_COLOR[p.punchType] || 'transparent'}11` }}>
+                              <span style={{ fontSize:'0.72rem', fontFamily:'monospace', fontWeight:700, color: PUNCH_TYPE_COLOR[p.punchType] || 'var(--text-muted)' }}>{p.time}</span>
+                              <span style={{ fontSize:'0.6rem', color: PUNCH_TYPE_COLOR[p.punchType] || 'var(--text-dim)' }}>{p.punchType != null ? (PUNCH_TYPE_LABEL[p.punchType] || p.punchType) : '?'}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="tbl-cell" style={{ fontFamily:'monospace', fontSize:'0.82rem', color:'#34d399', fontWeight:600 }}>{day.resolvedIn || '—'}</td>
+                      <td className="tbl-cell" style={{ fontFamily:'monospace', fontSize:'0.82rem', color:'#f87171', fontWeight:600 }}>{day.resolvedOut || '—'}</td>
+                      <td className="tbl-cell" style={{ fontFamily:'monospace', fontSize:'0.82rem', color:'var(--accent)', fontWeight:600 }}>
+                        {day.workedMinutes ? `${Math.floor(day.workedMinutes/60)}h ${day.workedMinutes%60}m` : '—'}
+                      </td>
+                      <td className="tbl-cell">
+                        {day.flags.length === 0
+                          ? <span style={{ fontSize:'0.72rem', color:'#34d399', fontWeight:600 }}>✓ OK</span>
+                          : <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                              {day.flags.map(f => (
+                                <span key={f} style={{ fontSize:'0.68rem', padding:'2px 7px', borderRadius:99, fontWeight:700,
+                                  background: FLAG_CFG[f]?.bg || 'var(--bg-surface2)',
+                                  color: FLAG_CFG[f]?.color || 'var(--text-muted)',
+                                  border:`1px solid ${FLAG_CFG[f]?.color || 'var(--border)'}44` }}>
+                                  {FLAG_CFG[f]?.label || f}
+                                </span>
+                              ))}
+                            </div>
+                        }
+                      </td>
+                    </tr>
+                  )))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Payroll report controls ── */}
+      {!isPunch && (
+        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', paddingTop:8, borderTop:'1px solid var(--border-soft)' }}>
+          <div style={{ display:'flex', gap:8 }}>
+            {[{v:'all',label:`All (${data.length})`},{v:'selected',label:`Selected (${selCount})`}].map(s => (
+              <button key={s.v} onClick={() => setScope(s.v)}
+                disabled={s.v === 'selected' && selCount === 0}
+                style={{
+                  padding:'5px 12px', borderRadius:8, fontSize:'0.78rem', fontWeight:600, cursor:'pointer', transition:'all .12s',
+                  background: scope===s.v ? 'var(--accent)' : 'var(--bg-surface2)',
+                  color: scope===s.v ? '#000' : selCount===0&&s.v==='selected' ? 'var(--text-dim)' : 'var(--text-secondary)',
+                  border:`1px solid ${scope===s.v ? 'var(--accent)' : 'var(--border)'}`,
+                  opacity: s.v==='selected' && selCount===0 ? 0.45 : 1,
+                }}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
+            <button onClick={() => downloadExcel(rows, reportType, period, org)}
+              disabled={!rows.length}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, cursor:'pointer', transition:'all .13s',
+                background:'rgba(52,211,153,.1)', color:'#34d399', border:'1px solid rgba(52,211,153,.25)',
+                fontSize:'0.8rem', fontWeight:700, opacity: !rows.length ? 0.5 : 1 }}
+              onMouseEnter={e=>e.currentTarget.style.background='rgba(52,211,153,.18)'}
+              onMouseLeave={e=>e.currentTarget.style.background='rgba(52,211,153,.1)'}>
+              <Download size={13}/> Excel
             </button>
-          ))}
+            <button onClick={() => printReport(rows, reportType, period, org)}
+              disabled={!rows.length}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, cursor:'pointer', transition:'all .13s',
+                background:'rgba(248,113,113,.1)', color:'#f87171', border:'1px solid rgba(248,113,113,.25)',
+                fontSize:'0.8rem', fontWeight:700, opacity: !rows.length ? 0.5 : 1 }}
+              onMouseEnter={e=>e.currentTarget.style.background='rgba(248,113,113,.18)'}
+              onMouseLeave={e=>e.currentTarget.style.background='rgba(248,113,113,.1)'}>
+              <Printer size={13}/> PDF
+            </button>
+          </div>
         </div>
-        <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
-          <button onClick={() => downloadExcel(rows, reportType, period, org)}
-            disabled={!rows.length}
-            style={{
-              display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, cursor:'pointer', transition:'all .13s',
-              background:'rgba(52,211,153,.1)', color:'#34d399', border:'1px solid rgba(52,211,153,.25)',
-              fontSize:'0.8rem', fontWeight:700, opacity: !rows.length ? 0.5 : 1,
-            }}
-            onMouseEnter={e=>e.currentTarget.style.background='rgba(52,211,153,.18)'}
-            onMouseLeave={e=>e.currentTarget.style.background='rgba(52,211,153,.1)'}>
-            <Download size={13}/> Excel
-          </button>
-          <button onClick={() => printReport(rows, reportType, period, org)}
-            disabled={!rows.length}
-            style={{
-              display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:9, cursor:'pointer', transition:'all .13s',
-              background:'rgba(248,113,113,.1)', color:'#f87171', border:'1px solid rgba(248,113,113,.25)',
-              fontSize:'0.8rem', fontWeight:700, opacity: !rows.length ? 0.5 : 1,
-            }}
-            onMouseEnter={e=>e.currentTarget.style.background='rgba(248,113,113,.18)'}
-            onMouseLeave={e=>e.currentTarget.style.background='rgba(248,113,113,.1)'}>
-            <Printer size={13}/> PDF
-          </button>
-        </div>
-      </div>
+      )}
 
-      {rows.length === 0 && scope === 'selected' && (
+      {!isPunch && rows.length === 0 && scope === 'selected' && (
         <p style={{ fontSize:'0.78rem', color:'var(--text-dim)', fontStyle:'italic' }}>No employees selected. Use checkboxes in the table above, or switch scope to All.</p>
       )}
     </div>
@@ -748,6 +1121,7 @@ export default function PayrollTab({ orgId }) {
   const [selected,  setSelected]= useState(new Set())
   const [page,      setPage]    = useState(1)
   const [limit,     setLimit]   = useState(5)
+  const [q,         setQ]       = useState('')
 
   useEffect(() => {
     if (!orgId) return
@@ -772,8 +1146,17 @@ export default function PayrollTab({ orgId }) {
 
   const filtered = useMemo(() => {
     if (!data?.data) return []
-    return fDept ? data.data.filter(r => r.department === fDept) : data.data
-  }, [data, fDept])
+    let rows = fDept ? data.data.filter(r => r.department === fDept) : data.data
+    if (q) {
+      const s = q.toLowerCase()
+      rows = rows.filter(r =>
+        (r.name||'').toLowerCase().includes(s) ||
+        (r.employeeCode||'').toLowerCase().includes(s) ||
+        (r.department||'').toLowerCase().includes(s)
+      )
+    }
+    return rows
+  }, [data, fDept, q])
 
   const payrollPages = Math.ceil(filtered.length / limit)
   const paginated    = filtered.slice((page - 1) * limit, page * limit)
@@ -810,6 +1193,7 @@ export default function PayrollTab({ orgId }) {
         <div style={{ paddingBottom:2 }}>
           <Button onClick={load} loading={loading}><Filter size={13}/> Calculate Payroll</Button>
         </div>
+        <SearchBox value={q} onChange={e => { setQ(e.target.value); setPage(1) }} placeholder="Search employee…" style={{ minWidth:200, maxWidth:300, alignSelf:'flex-end', marginBottom:2 }}/>
       </div>
 
       {error && (

@@ -219,7 +219,7 @@ export default function Register() {
         }} />
 
         {/* Theme toggle */}
-        <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .4 }}
+        <motion.button type="button" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .4 }}
           onClick={toggle} whileHover={{ scale: 1.08 }} whileTap={{ scale: .93 }}
           style={{
             position: 'absolute', top: 20, right: 20, width: 38, height: 38, borderRadius: 10,
@@ -283,9 +283,9 @@ export default function Register() {
               <Input label="Password" icon={Lock} type="password" value={f.password} onChange={set('password')} placeholder="min 8 characters" autoComplete="new-password" />
               <StrengthBar pw={f.password} />
             </div>
-            <Input label="Confirm Password" icon={Lock} type="password" value={f.confirm} onChange={set('confirm')} placeholder="repeat password" autoComplete="new-password" onKeyDown={e => e.key === 'Enter' && submit()} />
+            <Input label="Confirm Password" icon={Lock} type="password" value={f.confirm} onChange={set('confirm')} placeholder="repeat password" autoComplete="new-password" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit() } }} />
 
-            <motion.button onClick={submit} disabled={busy}
+            <motion.button type="button" onClick={submit} disabled={busy}
               whileHover={{ scale: 1.015 }} whileTap={{ scale: .975 }}
               style={{
                 width: '100%', padding: '13px', borderRadius: 11, border: 'none',

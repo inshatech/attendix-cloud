@@ -89,7 +89,7 @@ router.patch('/organizations/:orgId/shifts/:shiftId', requireAuth, generalApiLim
     const org = await getOwnedOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
     if (!org) return res.status(404).json({ error: 'Organization not found' });
 
-    const { shiftId: _a, orgId: _b, createdAt: _c, updatedAt: _d, createdBy: _e, ...fields } = req.body;
+    const { _id, shiftId: _a, orgId: _b, createdAt: _c, updatedAt: _d, createdBy: _e, __v, ...fields } = req.body;
     fields.updatedBy = req.authUser.userId;
 
     // If setting as default, unset others first
@@ -219,7 +219,7 @@ router.get('/organizations/:orgId/employees/:employeeId', requireAuth, generalAp
 
     // Attach MachineUser enrollments
     const machineUsers = _MachineUser
-      ? await _MachineUser.find({ userId: emp.employeeId }).select('bridgeId deviceId uid name cardno role syncedAt').lean()
+      ? await _MachineUser.find({ userId: emp.employeeId }).select('bridgeId deviceId uid name cardno role syncedAt rawJson.user_id').lean()
       : [];
 
     res.json({ status: 'success', data: { ...emp, shift, machineUsers } });

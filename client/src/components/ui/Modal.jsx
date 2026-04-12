@@ -5,7 +5,7 @@ import { cn } from '../../lib/utils'
 
 const maxWMap = { sm:'max-w-sm', md:'max-w-md', lg:'max-w-lg', xl:'max-w-2xl' }
 
-export function Modal({ open, onClose, title, description, children, size='md', noBodyPad=false }) {
+export function Modal({ open, onClose, title, description, children, size='md', noBodyPad=false, noScroll=false }) {
   const maxW = maxWMap[size] || maxWMap.md
 
   return createPortal(
@@ -32,7 +32,7 @@ export function Modal({ open, onClose, title, description, children, size='md', 
             animate={{ opacity:1, scale:1, y:0 }}
             exit={{ opacity:0, scale:.96, y:8 }}
             transition={{ type:'spring', stiffness:360, damping:30 }}
-            className={cn('relative w-full rounded-2xl flex flex-col max-h-[90vh]', noBodyPad ? 'overflow-hidden' : 'p-6 gap-5 overflow-y-auto', maxW)}
+            className={cn('relative w-full rounded-2xl flex flex-col max-h-[90vh]', noBodyPad ? 'overflow-hidden' : noScroll ? 'p-6 gap-5 overflow-hidden' : 'p-6 gap-5 overflow-y-auto', maxW)}
             style={{
               background: 'var(--bg-elevated)',
               border: '1px solid var(--border)',

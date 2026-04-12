@@ -105,7 +105,7 @@ async function buildReportData(orgId, dateStr, timezone, refs) {
       : [],
     MachineUser
       ? MachineUser.find({ bridgeId: org.bridgeId, userId: /^emp-/ })
-          .select('userId uid deviceId').lean()
+          .select('userId uid deviceId rawJson.user_id').lean()
       : [],
   ]);
 
@@ -117,6 +117,11 @@ async function buildReportData(orgId, dateStr, timezone, refs) {
   muList.forEach(mu => {
     uidMap[`${mu.deviceId}:${mu.uid}`] = mu.userId;
     uidMap[String(mu.uid)]             = mu.userId;
+    const rawId = mu.rawJson?.user_id != null ? String(mu.rawJson.user_id) : null;
+    if (rawId) {
+      uidMap[`${mu.deviceId}:${rawId}`] = mu.userId;
+      uidMap[rawId]                     = mu.userId;
+    }
   });
 
   // Group logs by employeeId

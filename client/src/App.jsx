@@ -31,6 +31,7 @@ import AdminCoupons from './pages/admin/AdminCoupons'
 import AdminOrganizations from './pages/admin/AdminOrganizations'
 import AdminTickets from './pages/admin/AdminTickets'
 import AdminChat from './pages/admin/AdminChat'
+import AdminBackup from './pages/admin/AdminBackup'
 import { Fingerprint } from 'lucide-react'
 
 function Loading() {
@@ -122,6 +123,7 @@ function AppRoutes() {
       <Route path="/admin/plugins" element={<AuthGuard roles={['admin']}><AdminPlugins /></AuthGuard>} />
       <Route path="/admin/subscriptions" element={<AuthGuard roles={['admin']}><AdminSubscriptions /></AuthGuard>} />
       <Route path="/admin/coupons" element={<AuthGuard roles={['admin']}><AdminCoupons /></AuthGuard>} />
+      <Route path="/admin/backup" element={<AuthGuard roles={['admin']}><AdminBackup /></AuthGuard>} />
 
       {/* Fallbacks */}
       <Route path="/" element={<RootRedirect />} />

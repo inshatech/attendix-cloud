@@ -93,6 +93,23 @@ function calcPT(monthlyGross, slabs) {
   return 0;
 }
 
+// ── Helper — net working hours per day from shift definition ─────────────────
+// Uses shift in/out times minus any unpaid break minutes.
+// Falls back to 8h if shift data is incomplete.
+function shiftNetHours(shift) {
+  if (!shift?.defaultInTime || !shift?.defaultOutTime) return 8
+  const [ih, im] = shift.defaultInTime.split(':').map(Number)
+  const [oh, om] = shift.defaultOutTime.split(':').map(Number)
+  let totalMins = (oh * 60 + om) - (ih * 60 + im)
+  if (totalMins <= 0) totalMins += 1440  // night shift crosses midnight
+  const unpaidBreakMins = (shift.breaks || []).filter(b => !b.isPaid).reduce((s, b) => {
+    const [bsh, bsm] = (b.startTime || '00:00').split(':').map(Number)
+    const [beh, bem] = (b.endTime   || '00:00').split(':').map(Number)
+    return s + Math.max(0, (beh * 60 + bem) - (bsh * 60 + bsm))
+  }, 0)
+  return Math.max(1, (totalMins - unpaidBreakMins) / 60)
+}
+
 // ── Helper — LOP weight for a single absent day ───────────────────────────────
 // Half-day weekdays (e.g. scheduled Friday 09:30–14:00) count as 0.5 LOP when absent.
 // All other working days count as 1.0 LOP.
@@ -231,6 +248,12 @@ function buildUidMap(muList) {
   muList.forEach(mu => {
     map[`${mu.deviceId}:${mu.uid}`] = mu.userId;
     map[String(mu.uid)]             = mu.userId;
+    // rawJson.user_id is what the device stamps on punch logs (can differ from uid)
+    const rawId = mu.rawJson?.user_id != null ? String(mu.rawJson.user_id) : null;
+    if (rawId) {
+      map[`${mu.deviceId}:${rawId}`] = mu.userId;
+      map[rawId]                     = mu.userId;
+    }
   });
   return map;
 }
@@ -309,7 +332,7 @@ router.get('/organizations/:orgId/attendance/today', requireAuth, generalApiLimi
     // Map device userId (e.g. "5") -> employeeId (e.g. "emp-abc123") via MachineUser
     // MachineUser.userId = employeeId when linked (starts with emp-)
     const muList = _MachineUser
-      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId').lean()
+      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId rawJson.user_id').lean()
       : [];
     const deviceUidToEmpId = buildUidMap(muList);
 
@@ -487,7 +510,7 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
 
     // Map device userId -> employeeId via MachineUser
     const muList2 = _MachineUser
-      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId').lean()
+      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId rawJson.user_id').lean()
       : [];
     const duidToEmpId = buildUidMap(muList2);
 
@@ -681,11 +704,15 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
     const cur = new Date(start);
     while (cur <= end) { dates.push(localDateStr(cur)); cur.setDate(cur.getDate() + 1); }
 
-    // Holidays in range
+    // Holidays — load entire calendar month so fullMonthWorkingDays is accurate
+    // even when the selected range is a partial month (e.g. Apr 1–11 still needs Apr 12–30 holidays)
     const HolidayModel3 = getHolidayModel();
     const hMap = new Map();
     if (HolidayModel3) {
-      const hols = await HolidayModel3.find({ orgId: req.params.orgId, date: { $gte: startDate, $lte: endDate } }).lean().catch(() => []);
+      const _hRangeStart = new Date(startDate + 'T12:00:00')
+      const _hMonthFirst = `${_hRangeStart.getFullYear()}-${String(_hRangeStart.getMonth()+1).padStart(2,'0')}-01`
+      const _hMonthLast  = (() => { const d = new Date(_hRangeStart.getFullYear(), _hRangeStart.getMonth()+1, 0); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+      const hols = await HolidayModel3.find({ orgId: req.params.orgId, date: { $gte: _hMonthFirst, $lte: _hMonthLast } }).lean().catch(() => []);
       hols.forEach(h => hMap.set(h.date, h.name || 'Holiday'));
     }
 
@@ -696,7 +723,7 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
       : [];
 
     const muList3 = _MachineUser
-      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId').lean()
+      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId rawJson.user_id').lean()
       : [];
     const duidMap3 = buildUidMap(muList3);
     const byEmpDate3 = groupByEmpDate(logs, duidMap3);
@@ -711,8 +738,12 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
     // Load org leave policy for PT slabs
     const leavePolicy = await LeavePolicy.findOne({ orgId: req.params.orgId }).lean();
 
-    // Standard Indian payroll: per-day rate = monthly_salary / 26
-    const STANDARD_DAYS = 26;
+    // Full-month detection — used for PT proration
+    const _rangeEndDate   = new Date(endDate + 'T12:00:00')
+    const _lastDayOfMonth = new Date(_rangeEndDate.getFullYear(), _rangeEndDate.getMonth() + 1, 0).getDate()
+    const isFullMonthRun  = new Date(startDate + 'T12:00:00').getDate() === 1 && _rangeEndDate.getDate() === _lastDayOfMonth
+    // Calendar-day fraction for PT proration on partial-month runs
+    const ptCalFraction   = isFullMonthRun ? 1 : dates.length / _lastDayOfMonth
 
     // Pre-range late counts per employee (for monthly late allowance spanning range start)
     // Same pattern as range endpoint
@@ -816,44 +847,87 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
       const salary     = emp.salary || 0;
       const salaryType = emp.salaryType || 'monthly';
 
-      // Effective paid days:
-      //   Full: present, late, holiday, week-off, paid-leave
-      //   Half: half-day (worked) + scheduled half-day weekday absences count as 0.5 LOP (not 1.0)
-      //   Zero: absent (full day), unpaid-leave
-      const effectiveDays = att.present + att.late + att.holiday + att.weekOff + att.paidLeave + (att.halfDay * 0.5);
-      // Half-day weekday absences = 0.5 LOP each; full-day absences = 1.0 LOP each
-      const lopDays = (att.absent - att.halfDayWeekdayAbsent) + (att.halfDayWeekdayAbsent * 0.5) + att.unpaidLeave;
+      // Working days in the selected range (excludes weekoffs and holidays)
+      const workingDaysInRange = dates.length - att.weekOff - att.holiday;
+
+      // Full-month working days — used as daily rate divisor for monthly salary.
+      // Always based on the complete calendar month of startDate, NOT the selected range.
+      // This prevents the daily rate from inflating when a partial-month range is queried.
+      // Accounts for this employee's actual week-off days + org holidays in that month.
+      const _fmDate  = new Date(startDate + 'T12:00:00')
+      const _fmYear  = _fmDate.getFullYear()
+      const _fmMonth = _fmDate.getMonth()
+      const _fmDays  = new Date(_fmYear, _fmMonth + 1, 0).getDate()
+      let fullMonthWorkingDays = 0
+      for (let _d = 1; _d <= _fmDays; _d++) {
+        const _dow = new Date(_fmYear, _fmMonth, _d).getDay()
+        if (weeklyOff.includes(_dow)) continue
+        const _ds = `${_fmYear}-${String(_fmMonth + 1).padStart(2,'0')}-${String(_d).padStart(2,'0')}`
+        if (hMap.has(_ds)) continue
+        fullMonthWorkingDays++
+      }
+      if (fullMonthWorkingDays === 0) fullMonthWorkingDays = _fmDays  // safety fallback
+
+      // LOP days:
+      //   Full LOP  : absent (non-half-day-weekday), unpaid-leave
+      //   Half LOP  : half-day worked (employee came, worked <50% shift) → 0.5 LOP
+      //               absent on a scheduled half-day weekday               → 0.5 LOP
+      const lopDays = (att.absent - att.halfDayWeekdayAbsent)   // full-day absences
+                    + (att.halfDayWeekdayAbsent * 0.5)           // absent on half-day weekday
+                    + att.unpaidLeave                            // unpaid leave
+                    + (att.halfDay * 0.5);                       // came but worked only half shift
+
+      // Effective paid working days in the selected range
+      const effectiveDays = workingDaysInRange - lopDays;
+
+      // Actual shift hours per day (uses shift in/out − unpaid breaks; fallback 8h)
+      const hoursPerDay = shiftNetHours(shift)
 
       let dailyRate = 0, hourlyRate = 0, grossPay = 0, otAmount = 0;
 
       if (salaryType === 'monthly') {
-        dailyRate  = salary / STANDARD_DAYS;
-        hourlyRate = dailyRate / 8;
-        grossPay   = Math.max(0, salary - (lopDays * dailyRate));
+        // Daily rate = salary ÷ full calendar month working days (fixed per month, not per range)
+        // grossPay = effectiveDays in range × dailyRate  →  correct partial-month proration
+        dailyRate  = fullMonthWorkingDays > 0 ? salary / fullMonthWorkingDays : 0
+        hourlyRate = dailyRate / hoursPerDay
+        grossPay   = Math.max(0, effectiveDays * dailyRate)
       } else if (salaryType === 'daily') {
-        dailyRate  = salary;
-        hourlyRate = salary / 8;
-        grossPay   = effectiveDays * salary;
+        // Daily workers: paid only for days actually worked — no pay for week-offs or holidays
+        const paidDays = att.present + att.late + att.paidLeave + (att.halfDay * 0.5)
+        dailyRate  = salary
+        hourlyRate = salary / hoursPerDay
+        grossPay   = paidDays * salary
       } else if (salaryType === 'hourly') {
-        hourlyRate = salary;
-        dailyRate  = salary * 8;
-        grossPay   = (att.workedMinutes / 60) * salary;
+        hourlyRate = salary
+        dailyRate  = salary * hoursPerDay
+        grossPay   = (att.workedMinutes / 60) * salary
       }
 
-      // Overtime
-      const otMultiplier = emp.overtimeRate || (shift?.overtimeRules?.enabled ? 1.5 : 1.5);
+      // Overtime — use employee-level override rate if set, else shift overtime rate, else 1.5×
+      const otMultiplier = emp.overtimeRate || shift?.overtimeRules?.overtimeMultiplier || 1.5
       if (emp.overtimeAllowed !== false && att.overtimeMinutes > 0) {
-        otAmount = (att.overtimeMinutes / 60) * hourlyRate * otMultiplier;
+        otAmount = (att.overtimeMinutes / 60) * hourlyRate * otMultiplier
       }
 
-      // Deductions (Indian payroll standard)
-      const monthlyGrossEquiv = salaryType === 'monthly' ? salary : grossPay * (STANDARD_DAYS / Math.max(dates.length,1));
-      const pfBasic   = Math.min(15000, monthlyGrossEquiv); // PF on max 15000 basic
-      const pfAmount  = emp.pfNumber ? Math.round(pfBasic * 0.12) : 0;
-      const esiAmount = emp.esiNumber && monthlyGrossEquiv <= 21000 ? Math.round(grossPay * 0.0075) : 0;
-      // PT: employee override takes precedence over org slab
-      const monthlyPT = emp.ptOverride != null ? emp.ptOverride : calcPT(monthlyGrossEquiv, leavePolicy?.ptSlabs);
-      const ptAmount  = Math.round(monthlyPT * (dates.length / 26)); // pro-rated PT
+      // ── Deductions (Indian statutory rates) ───────────────────────────────────
+      // Monthly equivalent gross — used only for PF/ESI/PT threshold comparison.
+      // For monthly salary: use contracted salary (exact).
+      // For daily/hourly: scale up from range gross using actual working days
+      //   (26 used here intentionally as avg-month normaliser for threshold only, not for pay)
+      const monthlyGrossEquiv = salaryType === 'monthly'
+        ? salary
+        : workingDaysInRange > 0 ? Math.round(grossPay / workingDaysInRange * 26) : 0
+
+      const pfBasic  = Math.min(15000, monthlyGrossEquiv)         // PF ceiling ₹15,000 (statutory)
+      const pfAmount = emp.pfNumber ? Math.round(pfBasic * 0.12) : 0  // 12% employee contribution
+
+      // ESI: 0.75% of gross pay; only if monthly equiv ≤ ₹21,000 (statutory threshold)
+      const esiAmount = emp.esiNumber && monthlyGrossEquiv <= 21000 ? Math.round(grossPay * 0.0075) : 0
+
+      // PT: override takes precedence; slab-based is prorated for partial-month runs only
+      const ptAmount = emp.ptOverride != null
+        ? emp.ptOverride
+        : Math.round(calcPT(monthlyGrossEquiv, leavePolicy?.ptSlabs) * ptCalFraction)
 
       const totalDeductions = pfAmount + esiAmount + ptAmount;
       const netPay = Math.max(0, grossPay + otAmount - totalDeductions);
@@ -877,10 +951,11 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
         shift:       shiftDetail(shift),
         attendance:  att,
         payroll: {
-          workingDays:    dates.length - att.weekOff - att.holiday,
-          effectiveDays:  +effectiveDays.toFixed(2),
-          lopDays:        +lopDays.toFixed(2),
-          dailyRate:      +dailyRate.toFixed(2),
+          workingDays:         dates.length - att.weekOff - att.holiday,
+          fullMonthWorkingDays: fullMonthWorkingDays,
+          effectiveDays:       +effectiveDays.toFixed(2),
+          lopDays:             +lopDays.toFixed(2),
+          dailyRate:           +dailyRate.toFixed(2),
           hourlyRate:     +hourlyRate.toFixed(2),
           grossPay:       +grossPay.toFixed(2),
           otMinutes:      att.overtimeMinutes,
@@ -934,7 +1009,7 @@ router.get('/organizations/:orgId/attendance/logs', requireAuth, generalApiLimit
 
     // Build MachineUser -> employeeId bridge map
     const muBridge = _MachineUser
-      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId').lean()
+      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } }).select('userId uid deviceId rawJson.user_id').lean()
       : [];
     const logUidToEmpId = buildUidMap(muBridge);
 
@@ -964,6 +1039,141 @@ router.get('/organizations/:orgId/attendance/logs', requireAuth, generalApiLimit
     });
 
     res.json({ status:'success', data: enriched, total, returned: enriched.length });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PUNCH DETAIL REPORT
+//  GET /organizations/:orgId/attendance/punch-report
+//  Returns per-employee per-day raw punch breakdown with anomaly flags.
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get('/organizations/:orgId/attendance/punch-report', requireAuth, generalApiLimiter, async (req, res) => {
+  try {
+    const org = await getOrg(req.params.orgId, req.authUser.userId, req.authUser.role);
+    if (!org) return res.status(404).json({ error: 'Organization not found' });
+    if (!_AttendanceLog || !org.bridgeId) return res.json({ status:'success', data:[], summary:{} });
+
+    const { startDate, endDate, department, minPunches = '1', flaggedOnly = 'false' } = req.query;
+    if (!startDate || !endDate) return res.status(400).json({ error: 'startDate and endDate required' });
+
+    const start = new Date(startDate + 'T00:00:00');
+    const end   = new Date(endDate   + 'T23:59:59.999');
+
+    // Raw logs for range
+    const logs = await _AttendanceLog.find({
+      bridgeId: org.bridgeId, timestamp: { $gte: start, $lte: end }
+    }).sort({ timestamp: 1 }).lean();
+
+    // UID → employeeId map
+    const muBridge = _MachineUser
+      ? await _MachineUser.find({ bridgeId: org.bridgeId, userId: { $regex: /^emp-/ } })
+          .select('userId uid deviceId rawJson.user_id').lean()
+      : [];
+    const logUidToEmpId = buildUidMap(muBridge);
+
+    // Employees (with optional dept filter)
+    const empQuery = { orgId: req.params.orgId, status: 'active' };
+    if (department) empQuery.department = department;
+    const emps = await Employee.find(empQuery).lean();
+    const empMap = {};
+    emps.forEach(e => { empMap[e.employeeId] = e; });
+
+    // Shifts
+    const shiftIds = [...new Set(emps.map(e => e.shiftId).filter(Boolean))];
+    const shiftObjs = shiftIds.length ? await Shift.find({ shiftId: { $in: shiftIds } }).lean() : [];
+    const shiftMapLocal = {};
+    shiftObjs.forEach(s => { shiftMapLocal[s.shiftId] = s; });
+
+    // Group logs: empId → date → [log]
+    const grouped = {};
+    for (const log of logs) {
+      const empId = resolveEmpId(log, logUidToEmpId);
+      if (!empId || !empMap[empId]) continue;
+      const date = localDateStr(log.timestamp);
+      if (!grouped[empId])       grouped[empId] = {};
+      if (!grouped[empId][date]) grouped[empId][date] = [];
+      grouped[empId][date].push(log);
+    }
+
+    const minP     = Math.max(1, Number(minPunches) || 1);
+    const flagOnly = flaggedOnly === 'true';
+    const data     = [];
+    let totalDays = 0, totalPunches = 0, totalFlagged = 0;
+
+    for (const emp of emps) {
+      const empDays = grouped[emp.employeeId];
+      if (!empDays) continue;
+      const shift = emp.shiftId ? shiftMapLocal[emp.shiftId] : null;
+      const days  = [];
+
+      for (const [date, dayLogs] of Object.entries(empDays)) {
+        if (dayLogs.length < minP) continue;
+        const { inTime, outTime, workedMinutes } = resolvePunches(dayLogs, shift?.punchMode);
+
+        // Anomaly flags
+        const flags = [];
+        if (dayLogs.length === 1)  flags.push('no-out');
+        if (dayLogs.length > 1 && dayLogs.length % 2 !== 0) flags.push('odd-count');
+        if (dayLogs.length > 6)    flags.push('excess');
+        for (let i = 1; i < dayLogs.length; i++) {
+          const gap = (new Date(dayLogs[i].timestamp) - new Date(dayLogs[i-1].timestamp)) / 60000;
+          if (gap < 2) { flags.push('duplicate'); break; }
+        }
+
+        if (flagOnly && flags.length === 0) continue;
+
+        days.push({
+          date,
+          punchCount:   dayLogs.length,
+          resolvedIn:   inTime,
+          resolvedOut:  outTime,
+          workedMinutes,
+          flags,
+          punches: dayLogs.map(l => ({
+            time:      toHHMM(l.timestamp),
+            punchType: getPunchType(l),
+            deviceId:  l.deviceId || null,
+          })),
+        });
+        totalDays++;
+        totalPunches += dayLogs.length;
+        if (flags.length > 0) totalFlagged++;
+      }
+
+      if (!days.length) continue;
+      days.sort((a, b) => a.date.localeCompare(b.date));
+
+      data.push({
+        employeeId:   emp.employeeId,
+        name:         emp.displayName || `${emp.firstName} ${emp.lastName||''}`.trim(),
+        code:         emp.employeeCode || '',
+        department:   emp.department   || '',
+        photo:        emp.photoUrl     || null,
+        gender:       emp.gender       || null,
+        shiftName:    shift?.name      || null,
+        punchMode:    shift?.punchMode || '2-punch',
+        days,
+        totalPunches: days.reduce((s, d) => s + d.punchCount, 0),
+        flaggedDays:  days.filter(d => d.flags.length > 0).length,
+      });
+    }
+
+    data.sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({
+      status: 'success',
+      data,
+      summary: {
+        employees:    data.length,
+        totalDays,
+        totalPunches,
+        totalFlagged,
+        noOut:        data.reduce((s,e) => s + e.days.filter(d=>d.flags.includes('no-out')).length, 0),
+        oddCount:     data.reduce((s,e) => s + e.days.filter(d=>d.flags.includes('odd-count')).length, 0),
+        duplicate:    data.reduce((s,e) => s + e.days.filter(d=>d.flags.includes('duplicate')).length, 0),
+        excess:       data.reduce((s,e) => s + e.days.filter(d=>d.flags.includes('excess')).length, 0),
+      },
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -17,6 +17,7 @@ import { Empty } from '../components/ui/Empty'
 import { useAuth } from '../store/auth'
 import { useOrgContext } from '../store/context'
 import { UserPage, UserStatCard, UserActionBtn, UserAvatar, UserPageHeader } from '../components/ui/UserUI'
+import { SearchBox } from '../components/ui/SearchBox'
 import { useToast } from '../components/ui/Toast'
 import Pagination from '../components/ui/Pagination'
 import { fmtDate, cn } from '../lib/utils'
@@ -253,6 +254,8 @@ function EmployeeModal({ open, onClose, initial, orgId, shifts, depts, onSaved }
                             <span style={{ color:"var(--text-secondary)" }}>{m.deviceName || m.deviceId}</span>
                             {m.deviceModel ? <span style={{ color:"var(--text-dim)" }}> ({m.deviceModel})</span> : ''}
                             {' · UID '}{m.uid}
+                            {m.rawJson?.user_id != null && String(m.rawJson.user_id) !== String(m.uid)
+                              ? <span style={{ color:'#fb923c' }}> (Dev ID: {m.rawJson.user_id})</span> : ''}
                             {m.deviceLocation ? <span style={{ color:"var(--text-dim)" }}> · {m.deviceLocation}</span> : ''}
                           </p>
                         </div>
@@ -270,7 +273,7 @@ function EmployeeModal({ open, onClose, initial, orgId, shifts, depts, onSaved }
               )}
               {selMu && (
                 <p className="text-[10px] font-mono text-accent mt-1">
-                  ✓ Will link: <strong>{selMu.name || 'UID '+selMu.uid}</strong> · {selMu.bridgeName || selMu.bridgeId} → {selMu.deviceName || selMu.deviceId} (UID {selMu.uid})
+                  ✓ Will link: <strong>{selMu.name || 'UID '+selMu.uid}</strong> · {selMu.bridgeName || selMu.bridgeId} → {selMu.deviceName || selMu.deviceId} (UID {selMu.uid}{selMu.rawJson?.user_id != null && String(selMu.rawJson.user_id) !== String(selMu.uid) ? ` · Dev ID: ${selMu.rawJson.user_id}` : ''})
                 </p>
               )}
             </div>
@@ -667,7 +670,7 @@ function DetailModal({ open, onClose, emp, orgId, onRefresh }) {
                     <div className="flex-1 min-w-0">
                       <p style={{ fontSize:"0.875rem", fontWeight:600, color:"var(--text-primary)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontFamily:"monospace" }}>{m.deviceId}</p>
                       <p style={{ fontSize:"0.75rem", fontFamily:"monospace", color:"var(--text-muted)" }}>
-                        UID: {m.uid}{m.name ? ` · ${m.name}` : ''}{m.cardno ? ` · Card: ${m.cardno}` : ''}
+                        UID: {m.uid}{m.rawJson?.user_id != null && String(m.rawJson.user_id) !== String(m.uid) ? ` (Dev ID: ${m.rawJson.user_id})` : ''}{m.name ? ` · ${m.name}` : ''}{m.cardno ? ` · Card: ${m.cardno}` : ''}
                       </p>
                     </div>
                     <Badge variant="green" dot>Linked</Badge>
@@ -698,7 +701,7 @@ function DetailModal({ open, onClose, emp, orgId, onRefresh }) {
                     <div className="flex-1 min-w-0">
                       <p style={{ fontSize:"0.75rem", fontWeight:600, color:"var(--text-primary)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.name || `UID ${m.uid}`}</p>
                       <p style={{ fontSize:"0.625rem", fontFamily:"monospace", color:"var(--text-dim)" }}>
-                        {m.deviceId} · UID {m.uid}{m.cardno ? ` · ${m.cardno}` : ''}
+                        {m.deviceId} · UID {m.uid}{m.rawJson?.user_id != null && String(m.rawJson.user_id) !== String(m.uid) ? ` (Dev ID: ${m.rawJson.user_id})` : ''}{m.cardno ? ` · ${m.cardno}` : ''}
                         {m.employee ? <span style={{ color:"#d97706" }}> · linked to {m.employee.displayName || m.employee.firstName}</span> : ''}
                       </p>
                     </div>
@@ -1039,12 +1042,13 @@ function BulkImportModal({ open, onClose, orgId, depts, onDone }) {
   const [bulkDept,  setBulkDept]  = useState('')
   const [busy,      setBusy]      = useState(false)
   const [results,   setResults]   = useState(null)
+  const [rowQ,      setRowQ]      = useState('')
   const { toast } = useToast()
 
   useEffect(() => {
     if (!open || !orgId) return
     setStep(1); setSelDevice(''); setUidFrom(''); setUidTo('')
-    setRows([]); setResults(null); setBulkDept('')
+    setRows([]); setResults(null); setBulkDept(''); setRowQ('')
     api.get(`/organizations/${orgId}/devices`).then(r => setDevices(r.data || [])).catch(() => {})
   }, [open, orgId])
 
@@ -1105,202 +1109,265 @@ function BulkImportModal({ open, onClose, orgId, depts, onDone }) {
   const checkedCount   = rows.filter(r => r.checked && !r.alreadyLinked).length
   const alreadyCount   = rows.filter(r => r.alreadyLinked).length
   const selDeviceName  = devices.find(d => d.deviceId === selDevice)?.name || selDevice
+  const visRows = rowQ
+    ? rows.filter(r => {
+        const s = rowQ.toLowerCase()
+        return String(r.uid).includes(s)
+            || (r.machineName||'').toLowerCase().includes(s)
+            || (r.importName||'').toLowerCase().includes(s)
+      })
+    : rows
+
+  const STEPS = [['1','Select Source'],['2','Review & Edit'],['3','Done']]
 
   return (
-    <Modal open={open} onClose={close} title="Import Employees from Machine" size="xl">
+    <Modal open={open} onClose={close} title="Import Employees from Machine" size="xl" noScroll>
+      <div style={{ display:'flex', flexDirection:'column', flex:1, minHeight:0, gap:16 }}>
 
-      {/* Step indicator */}
-      <div style={{ display:'flex', alignItems:'center', marginBottom:16, marginTop:-4 }}>
-        {[['1','Select Source'],['2','Review & Edit'],['3','Done']].map(([n, lbl], i) => (
+      {/* ── Step indicator ── */}
+      <div style={{ display:'flex', alignItems:'center', marginBottom:20, marginTop:-4 }}>
+        {STEPS.map(([n, lbl], i) => (
           <Fragment key={n}>
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
               <div style={{
-                width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
-                fontSize:'0.7rem', fontFamily:'monospace', fontWeight:700,
+                width:30, height:30, borderRadius:'50%',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:'0.75rem', fontFamily:'monospace', fontWeight:800,
                 background: step > i+1 ? '#34d399' : step === i+1 ? 'var(--accent)' : 'var(--bg-surface2)',
-                border:`1px solid ${step > i+1 ? '#34d399' : step === i+1 ? 'var(--accent)' : 'var(--border)'}`,
+                border:`2px solid ${step > i+1 ? '#34d399' : step === i+1 ? 'var(--accent)' : 'var(--border)'}`,
                 color: step >= i+1 ? '#fff' : 'var(--text-dim)',
-              }}>{step > i+1 ? '✓' : n}</div>
-              <span style={{ fontSize:'0.6rem', fontFamily:'monospace', whiteSpace:'nowrap',
+                boxShadow: step === i+1 ? '0 0 0 4px var(--accent-muted)' : 'none',
+                transition:'all .2s',
+              }}>
+                {step > i+1 ? '✓' : n}
+              </div>
+              <span style={{ fontSize:'0.65rem', fontFamily:'monospace', fontWeight:600, whiteSpace:'nowrap',
                 color: step === i+1 ? 'var(--accent)' : 'var(--text-dim)' }}>{lbl}</span>
             </div>
             {i < 2 && (
-              <div style={{ flex:1, height:1, margin:'0 6px', marginBottom:16,
-                background: step > i+1 ? '#34d399' : 'var(--border)' }}/>
+              <div style={{ flex:1, height:2, margin:'0 8px', marginBottom:20, borderRadius:2,
+                background: step > i+1
+                  ? 'linear-gradient(90deg,#34d399,#34d399)'
+                  : step === i+1 ? 'linear-gradient(90deg,var(--accent) 0%,var(--border) 60%)' : 'var(--border)',
+                transition:'background .3s' }}/>
             )}
           </Fragment>
         ))}
       </div>
 
-      {/* ── Step 1: Select device + UID range ── */}
+      {/* ── Step 1 ── */}
       {step === 1 && (
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
-            <label className="field-label">Device</label>
+            <label className="field-label">Biometric Device</label>
             <select className="field-input" value={selDevice} onChange={e => setSelDevice(e.target.value)}>
               <option value="">— Select device —</option>
               {devices.map(d => (
                 <option key={d.deviceId} value={d.deviceId}>
-                  {d.name || d.deviceId}{d.model ? ` (${d.model})` : ''}
+                  {d.name || d.deviceId}{d.model ? ` · ${d.model}` : ''}
                 </option>
               ))}
             </select>
             {devices.length === 0 && (
-              <p style={{ fontSize:'0.72rem', color:'var(--text-dim)', fontFamily:'monospace', marginTop:4 }}>
-                No devices found. Sync a device from Organizations first.
+              <p style={{ fontSize:'0.75rem', color:'var(--text-dim)', fontFamily:'monospace', marginTop:5 }}>
+                No devices found — sync a device from Organizations first.
               </p>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
             <Input label="UID From" type="number" value={uidFrom}
-              onChange={e => setUidFrom(e.target.value)} placeholder="1  (blank = all)"/>
-            <Input label="UID To"   type="number" value={uidTo}
-              onChange={e => setUidTo(e.target.value)}   placeholder="100"/>
+              onChange={e => setUidFrom(e.target.value)} placeholder="blank = start"/>
+            <Input label="UID To" type="number" value={uidTo}
+              onChange={e => setUidTo(e.target.value)} placeholder="blank = all"/>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', borderRadius:10,
+
+          <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'11px 14px', borderRadius:10,
             background:'var(--accent-muted)', border:'1px solid var(--accent-border)' }}>
-            <Cpu size={13} style={{ color:'var(--accent)', flexShrink:0 }}/>
-            <p style={{ fontSize:'0.75rem', color:'var(--text-secondary)' }}>
-              Leave UID range blank to load all enrolled users from the device.
-              Already-linked users will be shown but skipped on import.
+            <Cpu size={13} style={{ color:'var(--accent)', flexShrink:0, marginTop:1 }}/>
+            <p style={{ fontSize:'0.75rem', color:'var(--text-secondary)', lineHeight:1.6 }}>
+              Leave UID range blank to load <strong>all enrolled users</strong> from the device.
+              Already-linked users will be shown with a green badge but skipped during import.
             </p>
           </div>
         </div>
       )}
 
-      {/* ── Step 2: Review & Edit table ── */}
+      {/* ── Step 2 ── */}
       {step === 2 && (
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {/* Summary + bulk dept toolbar */}
-          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-            <span style={{ fontSize:'0.72rem', fontFamily:'monospace', color:'var(--text-muted)' }}>
-              <strong style={{ color:'var(--text-secondary)' }}>{selDeviceName}</strong>
-              {' · '}{rows.length} loaded
-              {alreadyCount > 0 && <span style={{ color:'var(--text-dim)' }}> · {alreadyCount} already linked</span>}
-              {' · '}<span style={{ color:'var(--accent)' }}>{checkedCount} selected</span>
-            </span>
-            <div style={{ marginLeft:'auto', display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
-              <select className="field-input" value={bulkDept} onChange={e => setBulkDept(e.target.value)}
-                style={{ width:'auto', fontSize:'0.75rem' }}>
-                <option value="">Set dept for selected…</option>
-                {depts.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <Button variant="secondary" size="sm" onClick={applyBulkDept} disabled={!bulkDept}>Apply</Button>
+        <div style={{ display:'flex', flexDirection:'column', gap:10, flex:1, minHeight:0 }}>
+
+          {/* Toolbar */}
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap',
+            padding:'10px 12px', borderRadius:10, background:'var(--bg-surface2)', border:'1px solid var(--border)' }}>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', flex:1, alignItems:'center' }}>
+              {[
+                { label: 'Loaded',  val: rows.length,   color: 'var(--text-secondary)' },
+                { label: 'Linked',  val: alreadyCount,  color: '#34d399' },
+                { label: 'Selected',val: checkedCount,   color: 'var(--accent)' },
+              ].map(s => (
+                <div key={s.label} style={{ display:'flex', alignItems:'center', gap:5,
+                  padding:'3px 10px', borderRadius:7,
+                  background:'var(--bg-surface)', border:'1px solid var(--border)' }}>
+                  <span style={{ fontSize:'0.875rem', fontWeight:800, fontFamily:'monospace', color:s.color }}>{s.val}</span>
+                  <span style={{ fontSize:'0.65rem', color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.06em' }}>{s.label}</span>
+                </div>
+              ))}
             </div>
+            <SearchBox value={rowQ} onChange={e => setRowQ(e.target.value)}
+              placeholder="Search UID or name…" style={{ minWidth:160, maxWidth:220 }}/>
+            {depts.length > 0 && (
+              <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                <select className="field-input" value={bulkDept} onChange={e => setBulkDept(e.target.value)}
+                  style={{ width:'auto', fontSize:'0.75rem' }}>
+                  <option value="">Bulk set dept…</option>
+                  {depts.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <Button variant="secondary" size="sm" onClick={applyBulkDept} disabled={!bulkDept}>Apply</Button>
+              </div>
+            )}
           </div>
 
           {/* Table */}
-          <div style={{ maxHeight:'52vh', overflowY:'auto', border:'1px solid var(--border)', borderRadius:10 }}>
+          <div style={{ flex:1, minHeight:0, overflowY:'auto', border:'1px solid var(--border)', borderRadius:12 }}>
             <table style={{ width:'100%', borderCollapse:'collapse' }}>
-              <thead>
-                <tr style={{ background:'var(--bg-surface2)', borderBottom:'1px solid var(--border)' }}>
-                  <th style={{ padding:'7px 10px', textAlign:'left', width:36 }}>
+              <thead style={{ position:'sticky', top:0, zIndex:1 }}>
+                <tr style={{ background:'var(--bg-surface2)', borderBottom:'2px solid var(--border)' }}>
+                  <th style={{ padding:'9px 12px', textAlign:'left', width:38 }}>
                     <input type="checkbox"
-                      checked={rows.filter(r => !r.alreadyLinked).length > 0 && rows.filter(r => !r.alreadyLinked).every(r => r.checked)}
-                      onChange={e => setRows(rs => rs.map(r => r.alreadyLinked ? r : { ...r, checked: e.target.checked }))}/>
+                      checked={visRows.filter(r => !r.alreadyLinked).length > 0 && visRows.filter(r => !r.alreadyLinked).every(r => r.checked)}
+                      onChange={e => {
+                        setRows(rs => rs.map(r => {
+                          if (r.alreadyLinked) return r
+                          if (!rowQ) return { ...r, checked: e.target.checked }
+                          const s = rowQ.toLowerCase()
+                          const visible = String(r.uid).includes(s) || (r.machineName||'').toLowerCase().includes(s) || (r.importName||'').toLowerCase().includes(s)
+                          return visible ? { ...r, checked: e.target.checked } : r
+                        }))
+                      }}/>
                   </th>
                   {['UID','Machine Name','Import As Name','Department'].map(h => (
-                    <th key={h} style={{ padding:'7px 8px', textAlign:'left', fontSize:'0.625rem',
-                      fontFamily:'monospace', color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.06em' }}>{h}</th>
+                    <th key={h} style={{ padding:'9px 10px', textAlign:'left', fontSize:'0.6rem',
+                      fontFamily:'monospace', fontWeight:700, color:'var(--text-dim)',
+                      textTransform:'uppercase', letterSpacing:'0.07em' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, i) => (
-                  <tr key={i} style={{
-                    borderBottom:'1px solid var(--border-soft)',
-                    opacity: row.alreadyLinked ? 0.5 : 1,
-                    background: !row.alreadyLinked && row.checked
-                      ? 'color-mix(in srgb,var(--accent) 5%,transparent)' : 'transparent',
-                  }}>
-                    <td style={{ padding:'5px 10px' }}>
-                      <input type="checkbox" checked={row.checked} disabled={row.alreadyLinked}
-                        onChange={e => setRows(rs => rs.map((r, j) => j===i ? { ...r, checked: e.target.checked } : r))}/>
-                    </td>
-                    <td style={{ padding:'5px 8px', fontSize:'0.8125rem', fontFamily:'monospace',
-                      color:'var(--accent)', fontWeight:700 }}>{row.uid}</td>
-                    <td style={{ padding:'5px 8px', fontSize:'0.75rem',
-                      color:'var(--text-muted)', fontFamily:'monospace' }}>{row.machineName || '—'}</td>
-                    <td style={{ padding:'4px 8px', minWidth:140 }}>
-                      {row.alreadyLinked ? (
-                        <span style={{ fontSize:'0.7rem', fontFamily:'monospace', color:'#34d399' }}>
-                          ✓ {row.employee?.displayName || row.employee?.firstName || 'linked'}
-                          {row.employee?.employeeCode && <span style={{ color:'var(--text-dim)' }}> · {row.employee.employeeCode}</span>}
+                {visRows.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding:'28px 0', textAlign:'center',
+                    fontSize:'0.8rem', color:'var(--text-dim)', fontFamily:'monospace' }}>
+                    {rowQ ? 'No results match your search.' : 'No machine users found in this UID range.'}
+                  </td></tr>
+                ) : visRows.map((row, i) => {
+                  const realIdx = rows.indexOf(row)
+                  return (
+                    <tr key={i} style={{
+                      borderBottom:'1px solid var(--border-soft)',
+                      background: row.alreadyLinked
+                        ? 'var(--bg-surface2)'
+                        : row.checked ? 'color-mix(in srgb,var(--accent) 5%,transparent)' : 'transparent',
+                      transition:'background .12s',
+                    }}>
+                      <td style={{ padding:'7px 12px' }}>
+                        <input type="checkbox" checked={row.checked} disabled={row.alreadyLinked}
+                          onChange={e => setRows(rs => rs.map((r, j) => j===realIdx ? { ...r, checked: e.target.checked } : r))}/>
+                      </td>
+                      <td style={{ padding:'7px 10px' }}>
+                        <span style={{ fontSize:'0.8125rem', fontFamily:'monospace', fontWeight:700,
+                          color: row.alreadyLinked ? 'var(--text-dim)' : 'var(--accent)',
+                          padding:'2px 7px', borderRadius:6,
+                          background: row.alreadyLinked ? 'var(--bg-surface)' : 'var(--accent-muted)',
+                          border:`1px solid ${row.alreadyLinked ? 'var(--border)' : 'var(--accent-border)'}` }}>
+                          {row.uid}
                         </span>
-                      ) : (
-                        <input className="field-input"
-                          style={{ padding:'4px 8px', fontSize:'0.8125rem', height:'auto' }}
-                          value={row.importName}
-                          onChange={e => setRows(rs => rs.map((r, j) => j===i ? { ...r, importName: e.target.value } : r))}
-                          placeholder="Enter name…"/>
-                      )}
-                    </td>
-                    <td style={{ padding:'4px 8px', minWidth:130 }}>
-                      {!row.alreadyLinked && (
-                        <select className="field-input"
-                          style={{ padding:'4px 8px', fontSize:'0.75rem', height:'auto' }}
-                          value={row.department}
-                          onChange={e => setRows(rs => rs.map((r, j) => j===i ? { ...r, department: e.target.value } : r))}>
-                          <option value="">— dept —</option>
-                          {depts.map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td style={{ padding:'7px 10px', fontSize:'0.8125rem',
+                        color:'var(--text-muted)', fontFamily:'monospace' }}>
+                        {row.machineName || <span style={{ color:'var(--text-dim)' }}>—</span>}
+                      </td>
+                      <td style={{ padding:'5px 10px', minWidth:150 }}>
+                        {row.alreadyLinked ? (
+                          <span style={{ display:'inline-flex', alignItems:'center', gap:5,
+                            fontSize:'0.75rem', fontFamily:'monospace',
+                            color:'#34d399', padding:'3px 8px', borderRadius:6,
+                            background:'rgba(52,211,153,.08)', border:'1px solid rgba(52,211,153,.2)' }}>
+                            ✓ {row.employee?.displayName || row.employee?.firstName || 'linked'}
+                            {row.employee?.employeeCode && <span style={{ color:'rgba(52,211,153,.6)' }}>· {row.employee.employeeCode}</span>}
+                          </span>
+                        ) : (
+                          <input className="field-input"
+                            style={{ padding:'5px 9px', fontSize:'0.8125rem', height:'auto' }}
+                            value={row.importName}
+                            onChange={e => setRows(rs => rs.map((r, j) => j===realIdx ? { ...r, importName: e.target.value } : r))}
+                            placeholder="Employee name…"/>
+                        )}
+                      </td>
+                      <td style={{ padding:'5px 10px', minWidth:130 }}>
+                        {!row.alreadyLinked && (
+                          <select className="field-input"
+                            style={{ padding:'5px 9px', fontSize:'0.75rem', height:'auto' }}
+                            value={row.department}
+                            onChange={e => setRows(rs => rs.map((r, j) => j===realIdx ? { ...r, department: e.target.value } : r))}>
+                            <option value="">— dept —</option>
+                            {depts.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
-            {rows.length === 0 && (
-              <p style={{ textAlign:'center', padding:'20px 0', fontSize:'0.75rem',
-                color:'var(--text-dim)', fontFamily:'monospace' }}>
-                No machine users found in this UID range.
-              </p>
-            )}
           </div>
         </div>
       )}
 
-      {/* ── Step 3: Results ── */}
+      {/* ── Step 3 ── */}
       {step === 3 && results && (
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:14, padding:'16px 0' }}>
-          <div style={{ width:52, height:52, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center',
-            background:'rgba(52,211,153,.1)', border:'1px solid rgba(52,211,153,.25)' }}>
-            <CheckCircle2 size={24} style={{ color:'#34d399' }}/>
-          </div>
-          <div style={{ textAlign:'center' }}>
-            <p style={{ fontWeight:700, fontSize:'1rem', color:'var(--text-primary)', marginBottom:6 }}>Import Complete</p>
-            <div style={{ display:'flex', gap:16, justifyContent:'center' }}>
-              <span style={{ fontSize:'0.875rem', color:'#34d399', fontFamily:'monospace', fontWeight:700 }}>
-                {results.created} created & linked
-              </span>
-              {results.failed > 0 && (
-                <span style={{ fontSize:'0.875rem', color:'#f87171', fontFamily:'monospace', fontWeight:700 }}>
-                  {results.failed} failed
-                </span>
-              )}
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:16, padding:'8px 0' }}>
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
+            <div style={{ width:56, height:56, borderRadius:'50%',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              background:'rgba(52,211,153,.1)', border:'2px solid rgba(52,211,153,.3)' }}>
+              <CheckCircle2 size={26} style={{ color:'#34d399' }}/>
             </div>
+            <p style={{ fontWeight:800, fontSize:'1.125rem', color:'var(--text-primary)' }}>Import Complete</p>
           </div>
-          <div style={{ width:'100%', maxHeight:'30vh', overflowY:'auto', display:'flex', flexDirection:'column', gap:5 }}>
+          <div style={{ display:'flex', gap:12 }}>
+            <div style={{ textAlign:'center', padding:'10px 20px', borderRadius:10,
+              background:'rgba(52,211,153,.07)', border:'1px solid rgba(52,211,153,.2)' }}>
+              <p style={{ fontSize:'1.5rem', fontWeight:800, color:'#34d399', fontFamily:'monospace', lineHeight:1 }}>
+                {results.created}
+              </p>
+              <p style={{ fontSize:'0.7rem', color:'#34d399', marginTop:4, textTransform:'uppercase', letterSpacing:'0.06em' }}>Created</p>
+            </div>
+            {results.failed > 0 && (
+              <div style={{ textAlign:'center', padding:'10px 20px', borderRadius:10,
+                background:'rgba(248,113,113,.07)', border:'1px solid rgba(248,113,113,.2)' }}>
+                <p style={{ fontSize:'1.5rem', fontWeight:800, color:'#f87171', fontFamily:'monospace', lineHeight:1 }}>
+                  {results.failed}
+                </p>
+                <p style={{ fontSize:'0.7rem', color:'#f87171', marginTop:4, textTransform:'uppercase', letterSpacing:'0.06em' }}>Failed</p>
+              </div>
+            )}
+          </div>
+          <div style={{ width:'100%', maxHeight:'30vh', overflowY:'auto',
+            display:'flex', flexDirection:'column', gap:5, border:'1px solid var(--border)', borderRadius:10, padding:8 }}>
             {results.results.map((r, i) => (
               <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8,
-                background: r.success ? 'rgba(52,211,153,.06)' : 'rgba(248,113,113,.06)',
-                border:`1px solid ${r.success ? 'rgba(52,211,153,.2)' : 'rgba(248,113,113,.2)'}` }}>
-                <span style={{ fontSize:'0.8rem', color: r.success ? '#34d399' : '#f87171', flexShrink:0 }}>
+                background: r.success ? 'rgba(52,211,153,.05)' : 'rgba(248,113,113,.05)',
+                border:`1px solid ${r.success ? 'rgba(52,211,153,.18)' : 'rgba(248,113,113,.18)'}` }}>
+                <span style={{ fontSize:'0.875rem', color: r.success ? '#34d399' : '#f87171', flexShrink:0, fontWeight:700 }}>
                   {r.success ? '✓' : '✗'}
                 </span>
-                <span style={{ fontSize:'0.8125rem', color:'var(--text-primary)', flex:1, fontFamily:'monospace' }}>
+                <span style={{ fontSize:'0.8125rem', color:'var(--text-primary)', flex:1 }}>
                   {r.success ? r.name : `UID ${r.uid}`}
                 </span>
-                {r.success && (
-                  <span style={{ fontSize:'0.65rem', color:'var(--text-muted)', fontFamily:'monospace', flexShrink:0 }}>
-                    {r.employeeCode} · UID {r.uid}
-                  </span>
-                )}
-                {!r.success && (
-                  <span style={{ fontSize:'0.65rem', color:'#f87171', fontFamily:'monospace', flexShrink:0 }}>
-                    {r.error}
-                  </span>
-                )}
+                <span style={{ fontSize:'0.65rem', fontFamily:'monospace', flexShrink:0,
+                  color: r.success ? 'var(--text-muted)' : '#f87171' }}>
+                  {r.success ? `${r.employeeCode} · UID ${r.uid}` : r.error}
+                </span>
               </div>
             ))}
           </div>
@@ -1308,7 +1375,8 @@ function BulkImportModal({ open, onClose, orgId, depts, onDone }) {
       )}
 
       {/* Footer */}
-      <div style={{ display:'flex', justifyContent:'space-between', paddingTop:12, borderTop:'1px solid var(--border)', flexShrink:0 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+        paddingTop:14, borderTop:'1px solid var(--border)', flexShrink:0 }}>
         <div>
           {step === 2 && (
             <Button variant="secondary" size="sm" onClick={() => setStep(1)}>← Back</Button>
@@ -1333,6 +1401,8 @@ function BulkImportModal({ open, onClose, orgId, depts, onDone }) {
           )}
         </div>
       </div>
+
+      </div>{/* end flex-column wrapper */}
     </Modal>
   )
 }

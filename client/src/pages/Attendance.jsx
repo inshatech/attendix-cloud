@@ -7,6 +7,7 @@ import {
   Fingerprint, AlarmClock, Zap, BarChart3, Info, Clock3,
 } from 'lucide-react'
 import { Button }       from '../components/ui/Button'
+import { SearchBox }    from '../components/ui/SearchBox'
 import { Input }        from '../components/ui/Input'
 import { Modal }        from '../components/ui/Modal'
 import { ConfirmModal } from '../components/ui/ConfirmModal'
@@ -610,13 +611,27 @@ function LogsGrouped({ logs, loading, search, total }) {
   )
 }
 
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const DOW_SHORT   = ['Su','Mo','Tu','We','Th','Fr','Sa']
+
 function ManualModal({ open, onClose, initial, orgId, employees, onSaved }) {
-  const [form, setForm] = useState({})
-  const [busy, setBusy] = useState(false)
+  const [form,            setForm]           = useState({})
+  const [busy,            setBusy]           = useState(false)
+  const [dateMode,        setDateMode]       = useState('single') // 'single' | 'range' | 'month'
+  const [rangeFrom,       setRangeFrom]      = useState(todayStr())
+  const [rangeTo,         setRangeTo]        = useState(todayStr())
+  const [excludeWeekends, setExcludeWknd]    = useState(true)
+  const [calYear,         setCalYear]        = useState(new Date().getFullYear())
+  const [calMonth,        setCalMonth]       = useState(new Date().getMonth())
+  const [selectedDays,    setSelectedDays]   = useState(new Set())
   const { toast } = useToast()
 
   useEffect(() => {
     if (!open) return
+    const now = new Date()
+    setDateMode('single')
+    setRangeFrom(todayStr()); setRangeTo(todayStr()); setExcludeWknd(true)
+    setCalYear(now.getFullYear()); setCalMonth(now.getMonth()); setSelectedDays(new Set())
     setForm({
       employeeId:    initial?.employeeId    || '',
       date:          initial?.date          || todayStr(),
@@ -632,101 +647,333 @@ function ManualModal({ open, onClose, initial, orgId, employees, onSaved }) {
 
   const sf = k => e => setForm(f => ({...f, [k]: e.target.value}))
 
-  // Auto-calculate workedMinutes when inTime or outTime changes
   function calcWorked(inT, outT) {
     if (!inT || !outT) return ''
     const [ih, im] = inT.split(':').map(Number)
     const [oh, om] = outT.split(':').map(Number)
     let mins = (oh * 60 + om) - (ih * 60 + im)
-    if (mins < 0) mins += 1440 // crosses midnight
+    if (mins < 0) mins += 1440
     return String(mins)
   }
-  function onInTime(e) {
-    const inT = e.target.value
-    setForm(f => ({ ...f, inTime: inT, workedMinutes: calcWorked(inT, f.outTime) }))
-  }
-  function onOutTime(e) {
-    const outT = e.target.value
-    setForm(f => ({ ...f, outTime: outT, workedMinutes: calcWorked(f.inTime, outT) }))
+  function onInTime(e)  { const v = e.target.value; setForm(f => ({ ...f, inTime:  v, workedMinutes: calcWorked(v, f.outTime) })) }
+  function onOutTime(e) { const v = e.target.value; setForm(f => ({ ...f, outTime: v, workedMinutes: calcWorked(f.inTime, v) })) }
+
+  // ── Derive the final list of dates to save ──────────────────────────────────
+  function getDateList() {
+    if (dateMode === 'single') return form.date ? [form.date] : []
+    if (dateMode === 'range') {
+      if (!rangeFrom || !rangeTo) return []
+      const list = []; let d = new Date(rangeFrom + 'T12:00:00')
+      const end  = new Date(rangeTo  + 'T12:00:00')
+      while (d <= end) {
+        const dow = d.getDay()
+        if (!excludeWeekends || (dow !== 0 && dow !== 6))
+          list.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)
+        d.setDate(d.getDate() + 1)
+      }
+      return list
+    }
+    if (dateMode === 'month') return [...selectedDays].sort()
+    return []
   }
 
   async function save() {
     if (!form.employeeId) return toast('Select an employee', 'error')
-    if (!form.date)       return toast('Date is required',   'error')
+    const dateList = getDateList()
+    if (!dateList.length) return toast('Select at least one date', 'error')
     setBusy(true)
     try {
       if (initial?.manualId) {
         await api.patch(`/organizations/${orgId}/attendance/manual/${initial.manualId}`, form)
         toast('Entry updated', 'success')
-      } else {
-        await api.post(`/organizations/${orgId}/attendance/manual`, form)
+      } else if (dateList.length === 1) {
+        await api.post(`/organizations/${orgId}/attendance/manual`, { ...form, date: dateList[0] })
         toast('Manual entry saved', 'success')
+      } else {
+        let ok = 0, fail = 0
+        for (const date of dateList) {
+          try { await api.post(`/organizations/${orgId}/attendance/manual`, { ...form, date }); ok++ }
+          catch { fail++ }
+        }
+        toast(fail === 0 ? `${ok} entries saved` : `${ok} saved, ${fail} failed`, fail ? 'error' : 'success')
       }
       onSaved(); onClose()
     } catch(e) { toast(e.message, 'error') }
     finally { setBusy(false) }
   }
 
-  const isLeave = ['on-leave','paid-leave','sick-leave','comp-off'].includes(form.status)
-  const hasTime = !['absent','week-off','holiday'].includes(form.status)
+  // ── Calendar helpers ────────────────────────────────────────────────────────
+  function calDateStr(day) {
+    return `${calYear}-${String(calMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
+  }
+  function toggleDay(ds) {
+    setSelectedDays(prev => { const n = new Set(prev); n.has(ds) ? n.delete(ds) : n.add(ds); return n })
+  }
+  function selectWeekdays() {
+    const days = new Set()
+    const dim = new Date(calYear, calMonth + 1, 0).getDate()
+    for (let d = 1; d <= dim; d++) {
+      const dow = new Date(calYear, calMonth, d).getDay()
+      if (dow !== 0 && dow !== 6) days.add(calDateStr(d))
+    }
+    setSelectedDays(days)
+  }
+  function selectAll() {
+    const days = new Set()
+    const dim = new Date(calYear, calMonth + 1, 0).getDate()
+    for (let d = 1; d <= dim; d++) days.add(calDateStr(d))
+    setSelectedDays(days)
+  }
+
+  const isLeave    = ['on-leave','paid-leave','sick-leave','comp-off'].includes(form.status)
+  const hasTime    = !['absent','week-off','holiday'].includes(form.status)
+  const selEmp     = employees.find(e => e.employeeId === form.employeeId)
+  const statusCfg  = s => STATUS_CFG[s] || { label: s, accent: 'var(--text-muted)', bg: 'var(--bg-surface2)' }
+  const dateList   = getDateList()
+  const dateCount  = dateList.length
+  const isEdit     = !!initial?.manualId
+
+  // Calendar grid data
+  const daysInMonth  = new Date(calYear, calMonth + 1, 0).getDate()
+  const firstDowOfMonth = new Date(calYear, calMonth, 1).getDay()
+
+  const LSEC = { fontSize:'0.65rem', fontFamily:'monospace', fontWeight:700, color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.07em', display:'block', marginBottom:7 }
 
   return (
     <Modal open={open} onClose={onClose}
-      title={initial?.manualId ? 'Edit Manual Entry' : 'Add Manual Attendance'}
-      description="Overrides biometric data for this employee on the selected date"
-      size="md">
-      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-        <div>
-          <label className="field-label">Employee *</label>
-          <select className="field-input" value={form.employeeId} onChange={sf('employeeId')}>
-            <option value="">— Select employee —</option>
-            {employees.map(e => <option key={e.employeeId} value={e.employeeId}>{e.name} ({e.code})</option>)}
-          </select>
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-          <Input label="Date *" type="date" value={form.date} onChange={sf('date')}/>
-          <div>
-            <label className="field-label">Status *</label>
-            <select className="field-input" value={form.status} onChange={sf('status')}>
-              {MANUAL_STATUSES.map(s => <option key={s} value={s}>{STATUS_CFG[s]?.label || s}</option>)}
+      title={isEdit ? 'Edit Manual Entry' : 'Add Manual Attendance'}
+      description={isEdit ? 'Edit attendance override for this entry'
+        : dateCount > 0 ? `${dateCount} date${dateCount > 1 ? 's' : ''} selected — same settings applied to all`
+        : 'Select employee, dates and attendance details below'}
+      size="lg" noScroll>
+      <div style={{ display:'flex', flexDirection:'column', flex:1, minHeight:0 }}>
+      <div style={{ flex:1, minHeight:0, overflowY:'auto', display:'flex', flexDirection:'column', gap:14, paddingBottom:4 }}>
+
+        {/* ── Employee ── */}
+        <div style={{ background:'var(--bg-surface2)', borderRadius:12, padding:'11px 14px', border:'1px solid var(--border)' }}>
+          <label style={LSEC}>Employee *</label>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:34, height:34, borderRadius:'50%', flexShrink:0, border:'1px solid var(--border)',
+              background: selEmp ? 'color-mix(in srgb,var(--accent) 15%,var(--bg-surface))' : 'var(--bg-surface)',
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.875rem', fontWeight:800, color:'var(--accent)' }}>
+              {selEmp ? selEmp.name[0].toUpperCase() : '?'}
+            </div>
+            <select className="field-input" value={form.employeeId} onChange={sf('employeeId')} style={{ flex:1 }}>
+              <option value="">— Select employee —</option>
+              {employees.map(e => <option key={e.employeeId} value={e.employeeId}>{e.name}{e.code ? ` · ${e.code}` : ''}</option>)}
             </select>
           </div>
         </div>
-        {hasTime && (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
-            <div>
-              <label className="field-label">In Time</label>
-              <input type="time" value={form.inTime} onChange={onInTime} className="field-input" style={{ fontFamily:'monospace' }}/>
+
+        {/* ── Date section ── */}
+        <div style={{ background:'var(--bg-surface2)', borderRadius:12, border:'1px solid var(--border)', overflow:'hidden' }}>
+          {/* Mode tabs — hidden in edit mode */}
+          {!isEdit && (
+            <div style={{ display:'flex', borderBottom:'1px solid var(--border)' }}>
+              {[['single','Single'],['range','Range'],['month','Month']].map(([m, lbl]) => (
+                <button key={m} type="button" onClick={() => setDateMode(m)}
+                  style={{ flex:1, padding:'9px 4px', fontSize:'0.8125rem', fontWeight:600, cursor:'pointer',
+                    background: dateMode === m ? 'var(--bg-surface)' : 'transparent',
+                    color: dateMode === m ? 'var(--accent)' : 'var(--text-muted)',
+                    borderBottom: `2px solid ${dateMode === m ? 'var(--accent)' : 'transparent'}`,
+                    transition:'all .15s' }}>
+                  {lbl}
+                </button>
+              ))}
             </div>
-            <div>
-              <label className="field-label">Out Time</label>
-              <input type="time" value={form.outTime} onChange={onOutTime} className="field-input" style={{ fontFamily:'monospace' }}/>
-            </div>
-            <div>
-              <label className="field-label" style={{ display:'flex', alignItems:'center', gap:5 }}>
-                Worked (min)
-                {form.inTime && form.outTime && (
-                  <span style={{ fontSize:'0.6rem', fontFamily:'monospace', color:'var(--accent)',
-                    background:'var(--accent-muted)', border:'1px solid var(--accent-border)',
-                    borderRadius:4, padding:'1px 4px' }}>auto</span>
+          )}
+
+          <div style={{ padding:'12px 14px' }}>
+
+            {/* Single */}
+            {(isEdit || dateMode === 'single') && (
+              <div>
+                <label style={LSEC}>Date *</label>
+                <input type="date" value={form.date} onChange={sf('date')}
+                  className="field-input" style={{ fontFamily:'monospace' }}/>
+              </div>
+            )}
+
+            {/* Range */}
+            {!isEdit && dateMode === 'range' && (
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  <div>
+                    <label style={LSEC}>From</label>
+                    <input type="date" value={rangeFrom} onChange={e => setRangeFrom(e.target.value)}
+                      className="field-input" style={{ fontFamily:'monospace' }}/>
+                  </div>
+                  <div>
+                    <label style={LSEC}>To</label>
+                    <input type="date" value={rangeTo} onChange={e => setRangeTo(e.target.value)}
+                      className="field-input" style={{ fontFamily:'monospace' }}/>
+                  </div>
+                </div>
+                <label style={{ display:'flex', alignItems:'center', gap:9, cursor:'pointer', userSelect:'none',
+                  padding:'9px 12px', borderRadius:9, border:'1px solid var(--border)', background:'var(--bg-surface)' }}>
+                  <input type="checkbox" checked={excludeWeekends} onChange={e => setExcludeWknd(e.target.checked)}/>
+                  <span style={{ fontSize:'0.875rem', color:'var(--text-secondary)', fontWeight:500 }}>Exclude weekends</span>
+                </label>
+                {dateCount > 0 && (
+                  <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', borderRadius:9,
+                    background:'var(--accent-muted)', border:'1px solid var(--accent-border)' }}>
+                    <span style={{ fontSize:'0.875rem', fontWeight:800, color:'var(--accent)', fontFamily:'monospace' }}>{dateCount}</span>
+                    <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>working days selected</span>
+                  </div>
                 )}
-              </label>
-              <input type="number" className="field-input" style={{ fontFamily:'monospace' }}
-                value={form.workedMinutes} onChange={sf('workedMinutes')} placeholder="480" min="0"/>
+              </div>
+            )}
+
+            {/* Month calendar */}
+            {!isEdit && dateMode === 'month' && (
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {/* Month navigator */}
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                  <button type="button"
+                    onClick={() => { let m = calMonth - 1, y = calYear; if (m < 0) { m = 11; y-- } setCalMonth(m); setCalYear(y); setSelectedDays(new Set()) }}
+                    style={{ width:28, height:28, borderRadius:7, border:'1px solid var(--border)', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-muted)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <ChevronDown size={13} style={{ transform:'rotate(90deg)' }}/>
+                  </button>
+                  <span style={{ fontSize:'0.9375rem', fontWeight:700, color:'var(--text-primary)' }}>
+                    {MONTH_NAMES[calMonth]} {calYear}
+                  </span>
+                  <button type="button"
+                    onClick={() => { let m = calMonth + 1, y = calYear; if (m > 11) { m = 0; y++ } setCalMonth(m); setCalYear(y); setSelectedDays(new Set()) }}
+                    style={{ width:28, height:28, borderRadius:7, border:'1px solid var(--border)', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-muted)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <ChevronDown size={13} style={{ transform:'rotate(-90deg)' }}/>
+                  </button>
+                </div>
+
+                {/* Quick-select buttons */}
+                <div style={{ display:'flex', gap:6 }}>
+                  {[
+                    { lbl:'Weekdays', fn: selectWeekdays },
+                    { lbl:'All days', fn: selectAll },
+                    { lbl:'Clear',    fn: () => setSelectedDays(new Set()) },
+                  ].map(b => (
+                    <button key={b.lbl} type="button" onClick={b.fn}
+                      style={{ flex:1, padding:'6px 0', fontSize:'0.78rem', fontWeight:600, borderRadius:8,
+                        border:'1px solid var(--border)', background:'var(--bg-surface)',
+                        color:'var(--text-secondary)', cursor:'pointer', transition:'all .15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor='var(--accent)'; e.currentTarget.style.color='var(--accent)' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--text-secondary)' }}>
+                      {b.lbl}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Calendar grid */}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4 }}>
+                  {DOW_SHORT.map(d => (
+                    <div key={d} style={{ textAlign:'center', fontSize:'0.6rem', fontFamily:'monospace',
+                      fontWeight:700, color: d==='Su'||d==='Sa' ? '#f87171' : 'var(--text-dim)', padding:'2px 0' }}>{d}</div>
+                  ))}
+                  {Array.from({ length: firstDowOfMonth }).map((_, i) => <div key={'e'+i}/>)}
+                  {Array.from({ length: daysInMonth }).map((_, i) => {
+                    const day = i + 1
+                    const ds  = calDateStr(day)
+                    const dow = new Date(calYear, calMonth, day).getDay()
+                    const isWknd = dow === 0 || dow === 6
+                    const isSel  = selectedDays.has(ds)
+                    return (
+                      <button key={day} type="button" onClick={() => toggleDay(ds)}
+                        style={{
+                          aspectRatio:'1', borderRadius:8, border:`1.5px solid ${isSel ? 'var(--accent)' : isWknd ? 'transparent' : 'var(--border)'}`,
+                          background: isSel ? 'var(--accent-muted)' : isWknd ? 'var(--bg-surface)' : 'var(--bg-surface2)',
+                          color: isSel ? 'var(--accent)' : isWknd ? 'var(--text-dim)' : 'var(--text-secondary)',
+                          fontSize:'0.8rem', fontWeight: isSel ? 800 : 400,
+                          cursor:'pointer', transition:'all .1s',
+                          boxShadow: isSel ? `0 0 0 2px color-mix(in srgb,var(--accent) 15%,transparent)` : 'none',
+                        }}>
+                        {day}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Count badge */}
+                {selectedDays.size > 0 && (
+                  <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', borderRadius:9,
+                    background:'var(--accent-muted)', border:'1px solid var(--accent-border)' }}>
+                    <span style={{ fontSize:'0.875rem', fontWeight:800, color:'var(--accent)', fontFamily:'monospace' }}>{selectedDays.size}</span>
+                    <span style={{ fontSize:'0.8rem', color:'var(--text-secondary)' }}>day{selectedDays.size !== 1 ? 's' : ''} selected</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Status chips ── */}
+        <div>
+          <label style={LSEC}>Status *</label>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:6 }}>
+            {MANUAL_STATUSES.map(s => {
+              const cfg = statusCfg(s)
+              const active = form.status === s
+              return (
+                <button key={s} type="button" onClick={() => setForm(f => ({...f, status: s}))}
+                  style={{
+                    padding:'7px 4px', borderRadius:9, cursor:'pointer', transition:'all .15s',
+                    border: `1.5px solid ${active ? cfg.accent : 'var(--border)'}`,
+                    background: active ? cfg.bg : 'var(--bg-surface2)',
+                    color: active ? cfg.accent : 'var(--text-muted)',
+                    fontSize:'0.7rem', fontWeight: active ? 700 : 500, textAlign:'center', lineHeight:1.3,
+                    boxShadow: active ? `0 0 0 2px color-mix(in srgb, ${cfg.accent} 15%, transparent)` : 'none',
+                  }}>
+                  <span style={{ display:'block', fontSize:'0.65rem', fontWeight:800, fontFamily:'monospace', marginBottom:1 }}>
+                    {cfg.short || s.substring(0,2).toUpperCase()}
+                  </span>
+                  {cfg.label || s}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* ── Time ── */}
+        {hasTime && (
+          <div style={{ background:'var(--bg-surface2)', borderRadius:12, padding:'11px 14px', border:'1px solid var(--border)' }}>
+            <label style={LSEC}>Time</label>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr 1fr', alignItems:'end', gap:8 }}>
+              <div>
+                <label style={{ fontSize:'0.7rem', color:'var(--text-muted)', display:'block', marginBottom:4 }}>In</label>
+                <input type="time" value={form.inTime} onChange={onInTime} className="field-input" style={{ fontFamily:'monospace', color:'#34d399' }}/>
+              </div>
+              <div style={{ paddingBottom:8, color:'var(--text-dim)', fontSize:'0.9rem' }}>→</div>
+              <div>
+                <label style={{ fontSize:'0.7rem', color:'var(--text-muted)', display:'block', marginBottom:4 }}>Out</label>
+                <input type="time" value={form.outTime} onChange={onOutTime} className="field-input" style={{ fontFamily:'monospace', color:'#f87171' }}/>
+              </div>
+              <div>
+                <label style={{ fontSize:'0.7rem', color:'var(--text-muted)', display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
+                  Worked (min)
+                  {form.inTime && form.outTime && (
+                    <span style={{ fontSize:'0.55rem', fontWeight:700, color:'var(--accent)', background:'var(--accent-muted)', border:'1px solid var(--accent-border)', borderRadius:4, padding:'1px 5px' }}>AUTO</span>
+                  )}
+                </label>
+                <input type="number" className="field-input" style={{ fontFamily:'monospace', fontWeight:700, color:'var(--accent)' }}
+                  value={form.workedMinutes} onChange={sf('workedMinutes')} placeholder="480" min="0"/>
+              </div>
             </div>
           </div>
         )}
+
+        {/* ── Leave details ── */}
         {isLeave && (
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, padding:'11px 14px', borderRadius:12,
+            background:'rgba(96,165,250,.05)', border:'1px solid rgba(96,165,250,.2)' }}>
             <div>
-              <label className="field-label">Leave Type</label>
+              <label style={{ fontSize:'0.7rem', color:'var(--text-muted)', display:'block', marginBottom:4 }}>Leave Type</label>
               <select className="field-input" value={form.leaveType} onChange={sf('leaveType')}>
                 <option value="">—</option>
-                {['casual','sick','earned','maternity','paternity','other'].map(t => <option key={t} value={t}>{t}</option>)}
+                {['casual','sick','earned','maternity','paternity','other'].map(t => (
+                  <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                ))}
               </select>
             </div>
             <div>
-              <label className="field-label">Duration</label>
+              <label style={{ fontSize:'0.7rem', color:'var(--text-muted)', display:'block', marginBottom:4 }}>Duration</label>
               <select className="field-input" value={form.leaveHalf} onChange={sf('leaveHalf')}>
                 <option value="">Full day</option>
                 <option value="first">First half</option>
@@ -735,11 +982,22 @@ function ManualModal({ open, onClose, initial, orgId, employees, onSaved }) {
             </div>
           </div>
         )}
-        <Input label="Reason / Note" value={form.reason} onChange={sf('reason')} placeholder="Forgot to punch, machine offline…"/>
-      </div>
-      <div style={{ display:'flex', justifyContent:'flex-end', gap:8, paddingTop:12, borderTop:'1px solid var(--border)', marginTop:4 }}>
+
+        {/* ── Note ── */}
+        <div>
+          <label style={LSEC}>Reason / Note</label>
+          <Input value={form.reason} onChange={sf('reason')} placeholder="Forgot to punch, machine offline, on leave…"/>
+        </div>
+
+      </div>{/* end scrollable */}
+
+      {/* Footer */}
+      <div style={{ display:'flex', justifyContent:'flex-end', gap:8, paddingTop:14, borderTop:'1px solid var(--border)', marginTop:6, flexShrink:0 }}>
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} loading={busy}>{initial?.manualId ? 'Update Entry' : 'Save Entry'}</Button>
+        <Button onClick={save} loading={busy} disabled={dateCount === 0 && !isEdit}>
+          {isEdit ? 'Update Entry' : dateCount > 1 ? `Save ${dateCount} Entries` : 'Save Entry'}
+        </Button>
+      </div>
       </div>
     </Modal>
   )
@@ -774,6 +1032,9 @@ export default function Attendance() {
 
   const [logSearch,     setLogSearch]     = useState('')
   const [logTotal,      setLogTotal]      = useState(null)
+  const [todayQ,        setTodayQ]        = useState('')
+  const [rangeQ,        setRangeQ]        = useState('')
+  const [manualQ,       setManualQ]       = useState('')
 
   const [manualOpen,    setManualOpen]    = useState(false)
   const [manualInitial, setManualInitial] = useState(null)
@@ -889,17 +1150,30 @@ export default function Attendance() {
   const todayRecs   = (today?.records || []).filter(r => {
     if (fStatus && r.status !== fStatus) return false
     if (fDept   && r.department !== fDept) return false
+    if (todayQ) {
+      const s = todayQ.toLowerCase()
+      if (!(r.name||'').toLowerCase().includes(s) && !(r.code||'').toLowerCase().includes(s)) return false
+    }
     return true
   })
   const todayPages  = Math.ceil(todayRecs.length / attLimit)
   const todayPaged  = todayRecs.slice((todayPage - 1) * attLimit, todayPage * attLimit)
 
-  const rangeData   = range?.data || []
-  const rangePages  = Math.ceil(rangeData.length / attLimit)
-  const rangePaged  = rangeData.slice((rangePage - 1) * attLimit, rangePage * attLimit)
+  const rangeFiltered = (range?.data || []).filter(r => {
+    if (!rangeQ) return true
+    const s = rangeQ.toLowerCase()
+    return (r.name||'').toLowerCase().includes(s) || (r.code||'').toLowerCase().includes(s)
+  })
+  const rangePages  = Math.ceil(rangeFiltered.length / attLimit)
+  const rangePaged  = rangeFiltered.slice((rangePage - 1) * attLimit, rangePage * attLimit)
 
-  const manualPages = Math.ceil(manuals.length / attLimit)
-  const manualPaged = manuals.slice((manualPage - 1) * attLimit, manualPage * attLimit)
+  const manualFiltered = manuals.filter(m => {
+    if (!manualQ) return true
+    const s = manualQ.toLowerCase()
+    return (m.employee?.name||'').toLowerCase().includes(s) || (m.employee?.code||'').toLowerCase().includes(s)
+  })
+  const manualPages = Math.ceil(manualFiltered.length / attLimit)
+  const manualPaged = manualFiltered.slice((manualPage - 1) * attLimit, manualPage * attLimit)
 
   const TABS = [
     { id:'today',   label:"Today's Attendance", icon:Calendar    },
@@ -1000,6 +1274,7 @@ export default function Attendance() {
                     {depts.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 )}
+                <SearchBox value={todayQ} onChange={e => { setTodayQ(e.target.value); setTodayPage(1) }} placeholder="Search employee…" style={{ minWidth:180, maxWidth:260 }}/>
                 <span style={{ fontSize:'0.75rem', fontFamily:'monospace', color:'var(--text-dim)', marginLeft:'auto' }}>{todayRecs.length} records · click row to expand</span>
               </div>
 
@@ -1106,6 +1381,9 @@ export default function Attendance() {
             <div style={{ paddingBottom:2 }}>
               <Button onClick={() => loadRange(orgId)} loading={loading}><Filter size={13}/> Generate Report</Button>
             </div>
+            {range && (
+              <SearchBox value={rangeQ} onChange={e => { setRangeQ(e.target.value); setRangePage(1) }} placeholder="Search employee…" style={{ minWidth:200, maxWidth:300, alignSelf:'flex-end', marginBottom:2 }}/>
+            )}
           </div>
 
           {!range && !loading && (
@@ -1116,7 +1394,7 @@ export default function Attendance() {
             <Card>
               <div style={{ padding:'13px 20px', borderBottom:'1px solid var(--border-soft)', display:'flex', gap:20, flexWrap:'wrap' }}>
                 {[
-                  { l:'Employees', v:range.data?.length??0,  c:'var(--accent)' },
+                  { l:'Employees', v:rangeFiltered.length,  c:'var(--accent)' },
                   { l:'Days',      v:range.totalDays??0,     c:'var(--text-secondary)' },
                   { l:'Period',    v:`${range.startDate} → ${range.endDate}`, c:'var(--text-muted)' },
                 ].map(m => (
@@ -1167,11 +1445,11 @@ export default function Attendance() {
                   </tbody>
                 </table>
               </div>
-              {!loading && !rangeData.length && (
+              {!loading && !rangeFiltered.length && (
                 <Empty icon={Calendar} title="No data" description="No records found for this period."/>
               )}
             </Card>
-            <Pagination page={rangePage} pages={rangePages} onPage={setRangePage} total={rangeData.length} limit={attLimit}
+            <Pagination page={rangePage} pages={rangePages} onPage={setRangePage} total={rangeFiltered.length} limit={attLimit}
               onLimit={n => { setAttLimit(n); setRangePage(1) }}/>
           </>)}
         </>)}
@@ -1197,32 +1475,12 @@ export default function Attendance() {
                   )}
                 </p>
               </div>
-              <div style={{ flex:1, minWidth:160, maxWidth:300, position:'relative' }}>
-                <input
-                  value={logSearch}
-                  onChange={e => setLogSearch(e.target.value)}
-                  placeholder="Search employee name or code…"
-                  autoComplete="off"
-                  spellCheck={false}
-                  style={{
-                    width:'100%', padding:'6px 10px 6px 30px', borderRadius:8, fontSize:'0.8125rem',
-                    background:'var(--bg-surface2)', border:'1px solid var(--border)',
-                    color:'var(--text-primary)', outline:'none',
-                  }}
-                  onFocus={e  => e.target.style.borderColor='var(--accent)'}
-                  onBlur={e   => e.target.style.borderColor='var(--border)'}
-                />
-                <svg style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', color:'var(--text-dim)' }}
-                  width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                  <circle cx={11} cy={11} r={8}/><path d="M21 21l-4.35-4.35"/>
-                </svg>
-                {logSearch && (
-                  <button onClick={() => setLogSearch('')}
-                    style={{ position:'absolute', right:7, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--text-dim)', display:'flex', padding:2 }}>
-                    <XCircle size={13}/>
-                  </button>
-                )}
-              </div>
+              <SearchBox
+                value={logSearch}
+                onChange={e => setLogSearch(e.target.value)}
+                placeholder="Search employee name or code…"
+                style={{ flex:1, minWidth:160, maxWidth:300 }}
+              />
             </div>
             <LogsGrouped logs={logs} loading={loading} search={logSearch} total={logTotal}/>
           </Card>
@@ -1241,9 +1499,12 @@ export default function Attendance() {
                 <Button variant="secondary" onClick={() => loadManuals(orgId)} loading={loading}><Filter size={13}/> Filter</Button>
               </div>
             </div>
-            <Button onClick={() => { setManualInitial(null); setManualOpen(true) }}>
-              <Plus size={13}/> New Entry
-            </Button>
+            <div style={{ display:'flex', gap:10, alignItems:'flex-end', flexWrap:'wrap' }}>
+              <SearchBox value={manualQ} onChange={e => { setManualQ(e.target.value); setManualPage(1) }} placeholder="Search employee…" style={{ minWidth:200, maxWidth:300, marginBottom:2 }}/>
+              <Button onClick={() => { setManualInitial(null); setManualOpen(true) }}>
+                <Plus size={13}/> New Entry
+              </Button>
+            </div>
           </div>
 
           <Card>
@@ -1330,11 +1591,11 @@ export default function Attendance() {
                 </tbody>
               </table>
             </div>
-            {!loading && manuals.length === 0 && (
+            {!loading && manualFiltered.length === 0 && (
               <Empty icon={Edit3} title="No manual entries" description="Click New Entry to manually override attendance for any employee and date."/>
             )}
           </Card>
-          <Pagination page={manualPage} pages={manualPages} onPage={setManualPage} total={manuals.length} limit={attLimit}
+          <Pagination page={manualPage} pages={manualPages} onPage={setManualPage} total={manualFiltered.length} limit={attLimit}
             onLimit={n => { setAttLimit(n); setManualPage(1) }}/>
         </>)}
       </>)}

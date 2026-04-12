@@ -13,6 +13,7 @@ import { useAuth }      from '../store/auth'
 import { useOrgContext } from '../store/context'
 import { useToast }     from '../components/ui/Toast'
 import { UserPage, UserPageHeader } from '../components/ui/UserUI'
+import { SearchBox } from '../components/ui/SearchBox'
 import api from '../lib/api'
 
 // ── Type config — matches backend enum ───────────────────────────────────────
@@ -268,6 +269,7 @@ export default function Holidays() {
   const [delBusy,  setDelBusy] = useState(false)
   const [clearMod, setClearMod]= useState(false)
   const [clearBusy,setClearBusy]=useState(false)
+  const [q,        setQ]       = useState('')
 
   async function load(oid = orgId, y = year) {
     if (!oid) return
@@ -463,12 +465,21 @@ export default function Holidays() {
         </Card>
       )}
 
+      {/* Search */}
+      {!loading && holidays.length > 0 && (
+        <SearchBox value={q} onChange={e => setQ(e.target.value)} placeholder="Search holidays…" style={{ maxWidth:340 }}/>
+      )}
+
       {/* Holiday list by month */}
       {!loading && holidays.length > 0 && (
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
           {Object.entries(byMonth)
             .sort(([a],[b]) => Number(a) - Number(b))
             .map(([monthIdx, monthHols]) => {
+              const visHols = q
+                ? monthHols.filter(h => (h.name||'').toLowerCase().includes(q.toLowerCase()) || h.date.includes(q))
+                : monthHols
+              if (visHols.length === 0) return null
               const isCurMonth = isCurrentYear && Number(monthIdx) === currentMonthIdx
               return (
               <Card key={monthIdx} style={isCurMonth ? { border:'1px solid rgba(244,114,182,.35)', boxShadow:'0 0 0 2px rgba(244,114,182,.08)' } : {}}>
@@ -489,11 +500,11 @@ export default function Holidays() {
                     )}
                   </div>
                   <span style={{ fontSize:'0.7rem', fontFamily:'monospace', color:'var(--text-dim)' }}>
-                    {monthHols.length} holiday{monthHols.length !== 1 ? 's' : ''}
+                    {visHols.length} holiday{visHols.length !== 1 ? 's' : ''}
                   </span>
                 </div>
 
-                {monthHols
+                {visHols
                   .sort((a,b) => a.date.localeCompare(b.date))
                   .map((h, i) => {
                     const d       = new Date(h.date + 'T12:00:00')
@@ -506,7 +517,7 @@ export default function Holidays() {
                         initial={{ opacity:0 }} animate={{ opacity:1 }}
                         style={{
                           display:'flex', alignItems:'center', gap:14, padding:'12px 18px',
-                          borderBottom: i < monthHols.length - 1 ? '1px solid var(--border-soft)' : 'none',
+                          borderBottom: i < visHols.length - 1 ? '1px solid var(--border-soft)' : 'none',
                           opacity: isPast && !isToday ? 0.55 : 1,
                           transition:'background .15s',
                         }}

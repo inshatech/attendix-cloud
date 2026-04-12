@@ -613,7 +613,7 @@ router.get('/machine-users/all', requireAuth, async (req, res) => {
 
     const bridgeIds = orgs.map(o => o.bridgeId).filter(Boolean);
     const mus = await _MachineUser.find({ bridgeId: { $in: bridgeIds } })
-      .select('uid name bridgeId deviceId userId cardno role syncedAt').lean();
+      .select('uid name bridgeId deviceId userId cardno role syncedAt rawJson.user_id').lean();
 
     // Build maps for org and device name lookup
     const orgMap    = Object.fromEntries(orgs.map(o => [o.bridgeId, o]));

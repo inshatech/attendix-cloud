@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
+import { SearchBox as _SearchBox } from '../ui/SearchBox'
 
 export function AdminPage({ children }) {
   return (
@@ -129,19 +130,4 @@ export function LinkBtn({ to, label }) {
   )
 }
 
-export function SearchBox({ value, onChange, placeholder }) {
-  return (
-    <div style={{ position:'relative', flex:1, minWidth:200 }}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2"
-        style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}>
-        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-      </svg>
-      <input value={value} onChange={onChange} placeholder={placeholder||'Search…'}
-        style={{ width:'100%', paddingLeft:36, paddingRight:12, paddingTop:'0.65rem', paddingBottom:'0.65rem',
-          background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:9,
-          color:'var(--text-primary)', fontSize:'0.9375rem', outline:'none', transition:'border-color .15s' }}
-        onFocus={e=>e.target.style.borderColor='var(--accent)'}
-        onBlur={e=>e.target.style.borderColor='var(--border)'}/>
-    </div>
-  )
-}
+export function SearchBox(props) { return <_SearchBox {...props}/> }

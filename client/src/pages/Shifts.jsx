@@ -12,6 +12,7 @@ import { useOrgContext } from '../store/context'
 import { useToast } from '../components/ui/Toast'
 import { cn } from '../lib/utils'
 import { UserPage, UserPageHeader, UserStatCard, UserCard, UserActionBtn } from '../components/ui/UserUI'
+import { SearchBox } from '../components/ui/SearchBox'
 import api from '../lib/api'
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -297,6 +298,29 @@ function ShiftModal({ open, onClose, initial, orgId, onSaved }) {
 
   const sf  = (k,v) => setForm(f=>({...f,[k]:v}))
   const sar = (k,v) => setForm(f=>({...f, attendanceRules:{...f.attendanceRules,[k]:v}}))
+
+  function calcAutoRules(inT, outT) {
+    if (!inT || !outT) return null
+    const [ih, im] = inT.split(':').map(Number)
+    const [oh, om] = outT.split(':').map(Number)
+    let total = (oh * 60 + om) - (ih * 60 + im)
+    if (total <= 0) total += 1440  // night shift crosses midnight
+    if (total <= 15) return null
+    const r15 = n => Math.max(15, Math.round(n / 15) * 15)
+    return {
+      minMinutesForFullDay:  r15(total * 0.75),
+      halfDayAfterMinutes:   r15(total * 0.50),
+      minMinutesForPresent:  r15(total * 0.25),
+    }
+  }
+  function onInTime(v) {
+    const calc = calcAutoRules(v, form.defaultOutTime)
+    setForm(f => ({ ...f, defaultInTime: v, attendanceRules: calc ? { ...f.attendanceRules, ...calc } : f.attendanceRules }))
+  }
+  function onOutTime(v) {
+    const calc = calcAutoRules(form.defaultInTime, v)
+    setForm(f => ({ ...f, defaultOutTime: v, attendanceRules: calc ? { ...f.attendanceRules, ...calc } : f.attendanceRules }))
+  }
   const sor = (k,v) => setForm(f=>({...f, overtimeRules:{...f.overtimeRules,[k]:v}}))
   const toggleOff = i => {
     const c = form.weeklyOffDays || []
@@ -376,8 +400,8 @@ function ShiftModal({ open, onClose, initial, orgId, onSaved }) {
             <CB checked={form.isActive}     onChange={()=>sf('isActive',    !form.isActive)}     label="Active"/>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <TimeInput label="Check In Time *"  value={form.defaultInTime}  onChange={v=>sf('defaultInTime',v)}/>
-            <TimeInput label="Check Out Time *" value={form.defaultOutTime} onChange={v=>sf('defaultOutTime',v)}/>
+            <TimeInput label="Check In Time *"  value={form.defaultInTime}  onChange={onInTime}/>
+            <TimeInput label="Check Out Time *" value={form.defaultOutTime} onChange={onOutTime}/>
           </div>
           <div>
             <label className="field-label">Weekly Off Days</label>
@@ -478,6 +502,10 @@ function ShiftModal({ open, onClose, initial, orgId, onSaved }) {
           <div className="grid grid-cols-2 gap-3">
             <Input label="Late Grace (min)"        type="number" value={form.attendanceRules.graceLateMinutes}     onChange={e=>sar('graceLateMinutes',    +e.target.value)}/>
             <Input label="Early Leave Grace (min)" type="number" value={form.attendanceRules.graceEarlyMinutes}    onChange={e=>sar('graceEarlyMinutes',   +e.target.value)}/>
+            <div style={{ gridColumn:'1/-1', display:'flex', alignItems:'center', gap:8, padding:'6px 10px', borderRadius:8, background:'color-mix(in srgb,var(--accent) 6%,transparent)', border:'1px solid color-mix(in srgb,var(--accent) 18%,transparent)' }}>
+              <span style={{ fontSize:'0.65rem', fontWeight:700, fontFamily:'monospace', color:'var(--accent)', letterSpacing:'0.06em' }}>AUTO</span>
+              <span style={{ fontSize:'0.75rem', color:'var(--text-muted)' }}>Calculated from Check In/Out times — edit here to override</span>
+            </div>
             <Input label="Half-Day After (min)"    type="number" value={form.attendanceRules.halfDayAfterMinutes}  onChange={e=>sar('halfDayAfterMinutes', +e.target.value)}/>
             <Input label="Min for Present (min)"   type="number" value={form.attendanceRules.minMinutesForPresent} onChange={e=>sar('minMinutesForPresent',+e.target.value)}/>
             <Input label="Min for Full Day (min)"  type="number" value={form.attendanceRules.minMinutesForFullDay} onChange={e=>sar('minMinutesForFullDay',+e.target.value)}/>
@@ -561,6 +589,7 @@ export default function Shifts() {
   const [editing,setEdit]   = useState(null)
   const [delTarget,setDel]  = useState(null)
   const [delBusy,setDelBusy]= useState(false)
+  const [q,      setQ]      = useState('')
 
   async function load(oid = orgId) {
     if (!oid) return
@@ -594,6 +623,8 @@ export default function Shifts() {
         <UserStatCard label="Default Shift"  value={shifts.filter(s=>s.isDefault).length}    icon={Star}          accent="#facc15" index={3}/>
       </div>
 
+      <SearchBox value={q} onChange={e => setQ(e.target.value)} placeholder="Search shifts…" style={{ maxWidth:340 }}/>
+
       {loading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1,2,3].map(i=><div key={i} className="h-72 shimmer rounded-xl"/>)}
@@ -606,7 +637,7 @@ export default function Shifts() {
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {shifts.map(s=>(
+          {shifts.filter(s => !q || (s.name||'').toLowerCase().includes(q.toLowerCase())).map(s=>(
             <ShiftCard key={s.shiftId} shift={s}
               onEdit={shift=>{ setEdit(shift); setModal(true) }}
               onDelete={shift=>setDel(shift)}/>

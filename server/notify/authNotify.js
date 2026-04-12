@@ -11,7 +11,7 @@
 const mongoose = require('mongoose');
 const { sendEmail, getBrand } = require('./engine');
 
-// ── Shared email shell (dark + light-mode + mobile responsive) ────────────────
+// ── Shared email shell (light default + dark-mode + mobile responsive) ────────
 function shell(bodyHtml, brand = {}) {
   const appName     = brand.appName     || 'Attendix';
   const tagline     = brand.tagline     || 'Attendance & Payroll Simplified';
@@ -38,41 +38,41 @@ function shell(bodyHtml, brand = {}) {
       .ab { padding:22px 16px !important; }
       .af { padding:12px 16px !important; }
     }
-    /* ── Light mode ─────────────────────────────── */
-    @media (prefers-color-scheme:light) {
-      .outer  { background:#f0f0f8 !important; }
-      .ah     { background:#ffffff !important; border-color:#dde0f0 !important; }
-      .ab     { background:#ffffff !important; border-color:#dde0f0 !important; }
-      .af     { background:#f8f8fc !important; border-color:#dde0f0 !important; }
-      .c-head { color:#1a1a2e !important; }
+    /* ── Dark mode override ─────────────────────── */
+    @media (prefers-color-scheme:dark) {
+      .outer  { background:#07070f !important; }
+      .ah     { background:#111121 !important; border-color:#1e1e35 !important; }
+      .ab     { background:#0d0d1a !important; border-color:#1e1e35 !important; }
+      .af     { background:#0a0a14 !important; border-color:#1e1e35 !important; }
+      .c-head { color:#e0e0f0 !important; }
       .c-sub  { color:#5252a0 !important; }
       .c-muted{ color:#7878a8 !important; }
       .c-foot { color:#9090b8 !important; }
     }
   </style>
 </head>
-<body class="outer" style="margin:0;padding:0;background:#07070f;font-family:'Segoe UI',Arial,sans-serif;">
+<body class="outer" style="margin:0;padding:0;background:#f0f0f8;font-family:'Segoe UI',Arial,sans-serif;">
   <div class="aw" style="max-width:520px;margin:32px auto;padding:0 12px;">
 
     <!-- Header -->
-    <div class="ah" style="background:#111121;border:1px solid #1e1e35;border-radius:14px 14px 0 0;padding:18px 24px;display:flex;align-items:center;gap:12px;">
+    <div class="ah" style="background:#ffffff;border:1px solid #dde0f0;border-radius:14px 14px 0 0;padding:18px 24px;display:flex;align-items:center;gap:12px;">
       <div style="width:36px;height:36px;border-radius:9px;background:rgba(88,166,255,.12);border:1px solid rgba(88,166,255,.25);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
         ${logoBlock}
       </div>
       <div>
-        <p class="c-head" style="margin:0;color:#e0e0f0;font-weight:700;font-size:0.9rem;">${appName}</p>
-        <p class="c-muted" style="margin:2px 0 0;color:#4a4a72;font-size:0.65rem;font-family:monospace;">${tagline}</p>
+        <p class="c-head" style="margin:0;color:#1a1a2e;font-weight:700;font-size:0.9rem;">${appName}</p>
+        <p class="c-muted" style="margin:2px 0 0;color:#5050a0;font-size:0.65rem;font-family:monospace;">${tagline}</p>
       </div>
     </div>
 
     <!-- Body -->
-    <div class="ab" style="background:#0d0d1a;border:1px solid #1e1e35;border-top:none;padding:28px 24px;">
+    <div class="ab" style="background:#ffffff;border:1px solid #dde0f0;border-top:none;padding:28px 24px;">
       ${bodyHtml}
     </div>
 
     <!-- Footer -->
-    <div class="af" style="background:#0a0a14;border:1px solid #1e1e35;border-top:none;border-radius:0 0 14px 14px;padding:14px 24px;text-align:center;">
-      <p class="c-foot" style="margin:0;color:#3a3a58;font-size:10px;">
+    <div class="af" style="background:#f8f8fc;border:1px solid #dde0f0;border-top:none;border-radius:0 0 14px 14px;padding:14px 24px;text-align:center;">
+      <p class="c-foot" style="margin:0;color:#9090b8;font-size:10px;">
         ${companyName ? `© ${year} ${companyName} · ` : ''}${appName} · Automated notification · Do not reply
       </p>
       ${website ? `<p style="margin:5px 0 0;"><a href="${website}" style="color:#58a6ff;font-size:10px;text-decoration:none;">${website.replace(/^https?:\/\//,'')}</a></p>` : ''}
@@ -105,32 +105,32 @@ function sendWelcomeEmail(user) {
     const body = `
       <div style="text-align:center;margin-bottom:24px;">
         <div style="font-size:40px;margin-bottom:10px;">🎉</div>
-        <h2 class="c-head" style="margin:0 0 8px;color:#e0e0f0;font-size:1.3rem;font-weight:800;letter-spacing:-0.02em;">Welcome to ${brand.appName}!</h2>
-        <p class="c-sub" style="margin:0;color:#6060a0;font-size:0.85rem;">Your account has been created successfully.</p>
+        <h2 class="c-head" style="margin:0 0 8px;color:#1a1a2e;font-size:1.3rem;font-weight:800;letter-spacing:-0.02em;">Welcome to ${brand.appName}!</h2>
+        <p class="c-sub" style="margin:0;color:#5050a0;font-size:0.85rem;">Your account has been created successfully.</p>
       </div>
 
-      <p class="c-muted" style="margin:0 0 20px;color:#8080a8;font-size:0.875rem;line-height:1.7;">
-        Hi <strong style="color:#d0d0ec;">${user.name || 'there'}</strong>, welcome aboard!
+      <p class="c-muted" style="margin:0 0 20px;color:#4a4a80;font-size:0.875rem;line-height:1.7;">
+        Hi <strong style="color:#1a1a2e;">${user.name || 'there'}</strong>, welcome aboard!
         You can now create your organization and start managing attendance with biometric devices.
       </p>
 
-      <div style="background:#111121;border:1px solid #1e1e35;border-radius:10px;padding:16px 18px;margin-bottom:20px;">
-        <p style="margin:0 0 10px;color:#7070a0;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;">Getting started</p>
+      <div style="background:#f0f2ff;border:1px solid #dde0f0;border-radius:10px;padding:16px 18px;margin-bottom:20px;">
+        <p style="margin:0 0 10px;color:#5050a0;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;">Getting started</p>
         <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
           <span style="background:#58a6ff22;border:1px solid #58a6ff44;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#58a6ff;flex-shrink:0;margin-top:1px;">1</span>
-          <p style="margin:0;color:#8080a8;font-size:0.82rem;line-height:1.5;">Create an organization and set up your profile</p>
+          <p style="margin:0;color:#4a4a80;font-size:0.82rem;line-height:1.5;">Create an organization and set up your profile</p>
         </div>
         <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
           <span style="background:#58a6ff22;border:1px solid #58a6ff44;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#58a6ff;flex-shrink:0;margin-top:1px;">2</span>
-          <p style="margin:0;color:#8080a8;font-size:0.82rem;line-height:1.5;">Connect your biometric device via the Bridge App</p>
+          <p style="margin:0;color:#4a4a80;font-size:0.82rem;line-height:1.5;">Connect your biometric device via the Bridge App</p>
         </div>
         <div style="display:flex;gap:10px;align-items:flex-start;">
           <span style="background:#58a6ff22;border:1px solid #58a6ff44;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#58a6ff;flex-shrink:0;margin-top:1px;">3</span>
-          <p style="margin:0;color:#8080a8;font-size:0.82rem;line-height:1.5;">Add employees and start tracking real-time attendance</p>
+          <p style="margin:0;color:#4a4a80;font-size:0.82rem;line-height:1.5;">Add employees and start tracking real-time attendance</p>
         </div>
       </div>
 
-      <p style="margin:0;color:#5a5a7a;font-size:0.78rem;line-height:1.6;">
+      <p style="margin:0;color:#9090b0;font-size:0.78rem;line-height:1.6;">
         If you have any questions, visit the Support section in your dashboard or contact our team.
       </p>`;
 
@@ -153,16 +153,16 @@ function sendPasswordChangedEmail(user, isReset = false) {
     const body = `
       <div style="text-align:center;margin-bottom:24px;">
         <div style="font-size:36px;margin-bottom:10px;">🔐</div>
-        <h2 class="c-head" style="margin:0 0 8px;color:#e0e0f0;font-size:1.15rem;font-weight:800;">
+        <h2 class="c-head" style="margin:0 0 8px;color:#1a1a2e;font-size:1.15rem;font-weight:800;">
           ${isReset ? 'Password Reset' : 'Password Changed'}
         </h2>
-        <p class="c-sub" style="margin:0;color:#6060a0;font-size:0.82rem;">Your account password was updated.</p>
+        <p class="c-sub" style="margin:0;color:#5050a0;font-size:0.82rem;">Your account password was updated.</p>
       </div>
 
-      <p class="c-muted" style="margin:0 0 20px;color:#8080a8;font-size:0.875rem;line-height:1.7;">
-        Hi <strong style="color:#d0d0ec;">${user.name || 'there'}</strong>,
+      <p class="c-muted" style="margin:0 0 20px;color:#4a4a80;font-size:0.875rem;line-height:1.7;">
+        Hi <strong style="color:#1a1a2e;">${user.name || 'there'}</strong>,
         your ${brand.appName} password was ${isReset ? 'reset' : 'successfully changed'} on
-        <strong style="color:#d0d0ec;">${time}</strong>.
+        <strong style="color:#1a1a2e;">${time}</strong>.
         All active sessions have been logged out.
       </p>
 
@@ -208,30 +208,30 @@ function sendSubscriptionEmail(userId, { planName, status, endDate, billingCycle
 
     const body = `
       <div style="text-align:center;margin-bottom:24px;">
-        <h2 class="c-head" style="margin:0 0 8px;color:#e0e0f0;font-size:1.15rem;font-weight:800;">${statusLabel}</h2>
-        <p class="c-sub" style="margin:0;color:#6060a0;font-size:0.82rem;">Your ${brand.appName} plan has been updated.</p>
+        <h2 class="c-head" style="margin:0 0 8px;color:#1a1a2e;font-size:1.15rem;font-weight:800;">${statusLabel}</h2>
+        <p class="c-sub" style="margin:0;color:#5050a0;font-size:0.82rem;">Your ${brand.appName} plan has been updated.</p>
       </div>
 
-      <div style="background:#111121;border:1px solid ${color}33;border-radius:10px;padding:18px 20px;margin-bottom:20px;text-align:center;">
+      <div style="background:#f0f2ff;border:1px solid ${color}33;border-radius:10px;padding:18px 20px;margin-bottom:20px;text-align:center;">
         <p style="margin:0 0 4px;color:${color};font-size:1.3rem;font-weight:800;">${planName}</p>
-        <p style="margin:0;color:#5a5a7a;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.1em;">
+        <p style="margin:0;color:#9090b0;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.1em;">
           ${billingCycle ? billingCycle.charAt(0).toUpperCase() + billingCycle.slice(1) + ' plan' : 'Plan'}
         </p>
-        ${endStr ? `<p style="margin:10px 0 0;color:#7070a0;font-size:0.78rem;">Valid until <strong style="color:#d0d0ec;">${endStr}</strong></p>` : ''}
+        ${endStr ? `<p style="margin:10px 0 0;color:#5050a0;font-size:0.78rem;">Valid until <strong style="color:#1a1a2e;">${endStr}</strong></p>` : ''}
       </div>
 
       ${isActive ? `
-      <p class="c-muted" style="margin:0 0 16px;color:#8080a8;font-size:0.85rem;line-height:1.6;">
-        Hi <strong style="color:#d0d0ec;">${contact.name || 'there'}</strong>,
+      <p class="c-muted" style="margin:0 0 16px;color:#4a4a80;font-size:0.85rem;line-height:1.6;">
+        Hi <strong style="color:#1a1a2e;">${contact.name || 'there'}</strong>,
         your subscription is now active. Log in to your dashboard to manage your organization.
       </p>` : `
-      <p class="c-muted" style="margin:0 0 16px;color:#8080a8;font-size:0.85rem;line-height:1.6;">
-        Hi <strong style="color:#d0d0ec;">${contact.name || 'there'}</strong>,
+      <p class="c-muted" style="margin:0 0 16px;color:#4a4a80;font-size:0.85rem;line-height:1.6;">
+        Hi <strong style="color:#1a1a2e;">${contact.name || 'there'}</strong>,
         your subscription has been ${status}. Contact support if you have questions or to renew.
       </p>`}
 
-      ${notes ? `<div style="background:#111121;border:1px solid #1e1e35;border-radius:8px;padding:12px 16px;">
-        <p style="margin:0;color:#6060a0;font-size:0.78rem;line-height:1.5;">Note: ${notes}</p>
+      ${notes ? `<div style="background:#f0f2ff;border:1px solid #dde0f0;border-radius:8px;padding:12px 16px;">
+        <p style="margin:0;color:#5050a0;font-size:0.78rem;line-height:1.5;">Note: ${notes}</p>
       </div>` : ''}`;
 
     const subject = `[${brand.appName}] ${statusLabel} — ${planName}`;

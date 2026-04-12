@@ -5,6 +5,7 @@ import {
   AlertTriangle, List, AlarmClock, Send, RefreshCw, ChevronRight, User, Shield
 } from 'lucide-react'
 import { Button } from '../components/ui/Button'
+import { SearchBox } from '../components/ui/SearchBox'
 import { Input } from '../components/ui/Input'
 import { Modal } from '../components/ui/Modal'
 import { Empty } from '../components/ui/Empty'
@@ -306,6 +307,7 @@ export default function Tickets() {
   const [newModal, setNew]     = useState(false)
   const [detailId, setDetail]  = useState(null)
   const [filter,   setFilter]  = useState('')
+  const [q,        setQ]       = useState('')
   const [page,     setPage]    = useState(1)
   const [limit,    setLimit]   = useState(5)
 
@@ -341,11 +343,17 @@ export default function Tickets() {
     { id:'closed',      label:'Closed',      icon: XCircle      },
   ]
 
-  const displayed = filter
-    ? tickets.filter(t => filter === 'in-progress'
-        ? ['in-progress','assigned'].includes(t.status)
-        : t.status === filter)
-    : tickets
+  const displayed = tickets
+    .filter(t => filter
+      ? (filter === 'in-progress' ? ['in-progress','assigned'].includes(t.status) : t.status === filter)
+      : true)
+    .filter(t => {
+      if (!q) return true
+      const s = q.toLowerCase()
+      return (t.subject||'').toLowerCase().includes(s)
+          || (t.ticketId||'').toLowerCase().includes(s)
+          || (t.category||'').toLowerCase().includes(s)
+    })
 
   const ticketPages = Math.ceil(displayed.length / limit)
   const paginated   = displayed.slice((page - 1) * limit, page * limit)
@@ -366,6 +374,9 @@ export default function Tickets() {
         <UserStatCard label="Resolved"    value={counts['resolved']||0}    icon={CheckCircle2} accent="#22c55e" index={3}/>
         <UserStatCard label="Closed"      value={counts['closed']||0}      icon={XCircle}      accent="var(--text-muted)" index={4}/>
       </div>
+
+      {/* Search */}
+      <SearchBox value={q} onChange={e => { setQ(e.target.value); setPage(1) }} placeholder="Search by subject, ID or category…" style={{ maxWidth:360 }}/>
 
       {/* Filter tabs */}
       <div style={{ display:'flex', gap:2, borderBottom:'1px solid var(--border)', overflowX:'auto' }}>

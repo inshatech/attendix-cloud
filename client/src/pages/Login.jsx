@@ -72,7 +72,7 @@ function TwoFAModal({ open, onClose, onVerify, busy }) {
             Don't ask on this browser again
           </span>
         </label>
-        <motion.button onClick={() => onVerify(otp, remember)} disabled={otp.length !== 6 || busy}
+        <motion.button type="button" onClick={() => onVerify(otp, remember)} disabled={otp.length !== 6 || busy}
           whileHover={{ scale: otp.length === 6 ? 1.02 : 1 }} whileTap={{ scale: .97 }}
           style={{
             width: '100%', marginTop: 18, padding: '13px', borderRadius: 11,
@@ -173,7 +173,7 @@ function LeftPanel({ activeF, setActiveF }) {
           </AnimatePresence>
           <div style={{ display: 'flex', gap: 5, padding: '0 20px 13px', alignItems: 'center' }}>
             {FEATURES.map((_, i) => (
-              <motion.button key={i} onClick={() => setActiveF(i)}
+              <motion.button type="button" key={i} onClick={() => setActiveF(i)}
                 animate={{ width: i === activeF ? 22 : 6 }}
                 style={{
                   height: 5, borderRadius: 99, border: 'none', cursor: 'pointer', padding: 0,
@@ -374,7 +374,7 @@ export default function Login() {
         }} />
 
         {/* Theme toggle */}
-        <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .4 }}
+        <motion.button type="button" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: .4 }}
           onClick={toggle} whileHover={{ scale: 1.08 }} whileTap={{ scale: .93 }}
           style={{
             position: 'absolute', top: 20, right: 20, width: 38, height: 38, borderRadius: 10,
@@ -433,7 +433,7 @@ export default function Login() {
             borderRadius: 11, padding: 4, marginBottom: 20, gap: 4
           }}>
             {[{ id: 'otp', label: 'OTP / SMS' }, { id: 'password', label: 'Password' }].map(t => (
-              <motion.button key={t.id} onClick={() => switchTab(t.id)}
+              <motion.button type="button" key={t.id} onClick={() => switchTab(t.id)}
                 style={{
                   flex: 1, padding: '9px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
                   fontWeight: 700, fontSize: '0.875rem', transition: 'all .18s',
@@ -459,7 +459,7 @@ export default function Login() {
                     textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 7
                   }}>Mobile or Email</label>
                   <input ref={idRef} value={id} onChange={e => setId(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && sendOtp()}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); sendOtp() } }}
                     placeholder="+91 98765 43210 or you@email.com"
                     style={{
                       width: '100%', padding: '13px 15px', fontSize: '0.9375rem', fontWeight: 500,
@@ -470,7 +470,7 @@ export default function Login() {
                     onFocus={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--accent-muted)' }}
                     onBlur={e => { e.target.style.borderColor = hasId ? 'var(--border-bright)' : 'var(--border)'; e.target.style.boxShadow = 'none' }} />
                 </div>
-                <motion.button onClick={sendOtp} disabled={busy || !hasId}
+                <motion.button type="button" onClick={sendOtp} disabled={busy || !hasId}
                   whileHover={{ scale: hasId && !busy ? 1.015 : 1 }} whileTap={{ scale: hasId && !busy ? .975 : 1 }}
                   style={{
                     width: '100%', padding: '13px', borderRadius: 11, border: 'none',
@@ -499,7 +499,7 @@ export default function Login() {
               <motion.div key="otp-code"
                 initial={{ opacity: 0, x: 20, scale: .98 }} animate={{ opacity: 1, x: 0, scale: 1, transition: { type: 'spring', stiffness: 280, damping: 26 } }}
                 exit={{ opacity: 0, x: -16, scale: .98, transition: { duration: .18 } }}>
-                <button onClick={() => { setStep('id'); setOtp('') }}
+                <button type="button" onClick={() => { setStep('id'); setOtp('') }}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', fontWeight: 600,
                     color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 16, padding: 0
@@ -520,7 +520,7 @@ export default function Login() {
                 <div style={{ marginBottom: 16 }}>
                   <OtpInput value={otp} onChange={setOtp} autoFocus />
                 </div>
-                <motion.button onClick={verifyOtp} disabled={otp.length !== 6 || busy}
+                <motion.button type="button" onClick={verifyOtp} disabled={otp.length !== 6 || busy}
                   whileHover={{ scale: otp.length === 6 && !busy ? 1.015 : 1 }}
                   style={{
                     width: '100%', padding: '13px', borderRadius: 11, border: 'none',
@@ -542,7 +542,7 @@ export default function Login() {
                     ? <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
                       Resend in <span style={{ fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{sec}s</span>
                     </p>
-                    : <button onClick={() => sendOtp(true)}
+                    : <button type="button" onClick={() => sendOtp(true)}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.875rem',
                         color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700
@@ -565,7 +565,7 @@ export default function Login() {
                       textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 7
                     }}>Email or Mobile</label>
                     <input ref={idRef} value={id} onChange={e => setId(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && pwRef.current?.focus()}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); pwRef.current?.focus() } }}
                       placeholder="you@email.com or +91 98765 43210"
                       style={{
                         width: '100%', padding: '13px 15px', fontSize: '0.9375rem', fontWeight: 500,
@@ -584,7 +584,7 @@ export default function Login() {
                     <div style={{ position: 'relative' }}>
                       <input ref={pwRef} value={pw} onChange={e => setPw(e.target.value)}
                         type={showPw ? 'text' : 'password'}
-                        onKeyDown={e => e.key === 'Enter' && doPassword()}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); doPassword() } }}
                         placeholder="••••••••"
                         style={{
                           width: '100%', padding: '13px 44px 13px 15px', fontSize: '0.9375rem',
@@ -594,7 +594,7 @@ export default function Login() {
                         }}
                         onFocus={e => { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--accent-muted)' }}
                         onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none' }} />
-                      <button onClick={() => setShowPw(s => !s)}
+                      <button type="button" onClick={() => setShowPw(s => !s)}
                         style={{
                           position: 'absolute', right: 13, top: '50%', transform: 'translateY(-50%)',
                           background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0
@@ -609,7 +609,7 @@ export default function Login() {
                     Forgot password?
                   </Link>
                 </div>
-                <motion.button onClick={doPassword} disabled={busy || !id.trim() || !pw}
+                <motion.button type="button" onClick={doPassword} disabled={busy || !id.trim() || !pw}
                   whileHover={{ scale: id.trim() && pw && !busy ? 1.015 : 1 }}
                   style={{
                     width: '100%', padding: '13px', borderRadius: 11, border: 'none',

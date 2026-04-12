@@ -4,7 +4,7 @@ import {
   Fingerprint, LayoutDashboard, Building2, CreditCard, Wifi,
   Plug, Users, LogOut, User, Clock, UserCheck, Sun, Moon,
   CalendarCheck, CalendarDays, Shield, Ticket, Headphones, Receipt, Tag, PieChart, Info,
-  Heart, X,
+  Heart, X, Database,
 } from 'lucide-react'
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
@@ -197,6 +197,7 @@ function AdminSidebarContent({ user, logout }) {
         <NavItem to="/admin/subscriptions" icon={Receipt} label="Subscriptions" badge={newPayments > 0 ? newPayments : 0} />
         <NavItem to="/admin/coupons" icon={Tag} label="Coupons" />
         <NavItem to="/admin/plugins" icon={Plug} label="Plugins" />
+        <NavItem to="/admin/backup" icon={Database} label="Backup" />
         <span className="section-label" style={{ marginTop: '0.75rem' }}>Support</span>
         <NavItem to="/admin/tickets" icon={Ticket} label="Tickets" badge={openTickets} />
       </nav>

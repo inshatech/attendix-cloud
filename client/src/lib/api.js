@@ -19,7 +19,11 @@ api.interceptors.response.use(
   res => res.data,
   async err => {
     const status = err.response?.status
-    if (status === 401) {
+    // Only attempt refresh / redirect when the request carried an auth token.
+    // Requests without a token (login, register, OTP…) should just throw the
+    // error so the caller can show a toast — never reload the page.
+    const hadToken = !!err.config?.headers?.Authorization
+    if (status === 401 && hadToken) {
       const rt = localStorage.getItem('rt')
       if (rt) {
         try {

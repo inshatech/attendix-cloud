@@ -7,6 +7,7 @@ import { Badge } from '../components/ui/Badge'
 import { useAuth } from '../store/auth'
 import { useToast } from '../components/ui/Toast'
 import { UserPage, UserPageHeader, UserStatCard, UserFilterTabs } from '../components/ui/UserUI'
+import { SearchBox } from '../components/ui/SearchBox'
 import { daysLeft, fmtDate, fmtINR, cn } from '../lib/utils'
 import api from '../lib/api'
 
@@ -365,6 +366,7 @@ export default function Subscription() {
   const [plan,     setPlan]     = useState(null)
   const [plans,    setPlans]    = useState([])
   const [history,  setHistory]  = useState([])
+  const [histQ,    setHistQ]    = useState('')
   const [billing,  setBilling]  = useState('monthly')
   const [loading,  setLoad]     = useState(true)
   const [activating,setActive]  = useState(false)
@@ -603,12 +605,15 @@ export default function Subscription() {
       {/* History tab */}
       {tab === 'history' && (
         <div style={{ background:'var(--bg-surface)', borderRadius:18, border:'1px solid var(--border)', overflow:'hidden', boxShadow:'0 4px 24px rgba(0,0,0,.25)' }}>
-          <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--border-soft)', display:'flex', alignItems:'center', gap:10 }}>
-            <div style={{ width:28, height:28, borderRadius:8, background:'rgba(192,132,252,.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--border-soft)', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+            <div style={{ width:28, height:28, borderRadius:8, background:'rgba(192,132,252,.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
               <Receipt size={14} style={{ color:'#c084fc' }}/>
             </div>
             <span style={{ fontSize:'0.9375rem', fontWeight:700, color:'var(--text-secondary)' }}>Payment History</span>
-            <span style={{ marginLeft:'auto', fontSize:'0.8125rem', color:'var(--text-muted)' }}>{history.length} records</span>
+            <span style={{ fontSize:'0.8125rem', color:'var(--text-muted)' }}>{history.length} records</span>
+            <div style={{ marginLeft:'auto' }}>
+              <SearchBox value={histQ} onChange={e => setHistQ(e.target.value)} placeholder="Search history…" style={{ minWidth:200 }}/>
+            </div>
           </div>
           {history.length === 0 ? (
             <div style={{ padding:'3rem', textAlign:'center', color:'var(--text-dim)' }}>
@@ -626,7 +631,16 @@ export default function Subscription() {
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((item,i)=><HistoryRow key={item.subscriptionId||i} item={item} index={i}/>)}
+                  {(histQ
+                    ? history.filter(item => {
+                        const s = histQ.toLowerCase()
+                        return (item.planId||'').toLowerCase().includes(s)
+                            || (item.status||'').toLowerCase().includes(s)
+                            || (item.paymentRef||'').toLowerCase().includes(s)
+                            || (item.notes||'').toLowerCase().includes(s)
+                      })
+                    : history
+                  ).map((item,i)=><HistoryRow key={item.subscriptionId||i} item={item} index={i}/>)}
                 </tbody>
               </table>
             </div>

@@ -169,6 +169,7 @@ var routeEmployees   = require('./routes/employees');
 var routeDepartments = require('./routes/departments');
 var routeAttendance  = require('./routes/attendance');
 var routeLeaves      = require('./routes/leaves');
+var routeAdminBackup = require('./routes/adminBackup');
 
 // ── ABOUT PAGE (public — serves About Us content to frontend) ────────────────
 app.get('/api/about', async (req, res) => {
@@ -215,6 +216,7 @@ app.use('/auth',          routeAuth);
 app.use('/admin/plugins', routePlugins);
 app.use('/admin',         routeAdminOrgs);
 app.use('/admin',         routeAdminUsers);
+app.use('/admin',         routeAdminBackup);
 app.use('/user',          routeUserSelf);
 app.use('/',              subRouter);
 app.use('/',              routeDepartments);
@@ -410,6 +412,11 @@ setInterval(async () => {
         .catch(e => console.error(`[report] ${org.name} error:`, e.message));
     }
   } catch (e) { console.error('[report-cron] error:', e.message); }
+}, 60 * 1000);
+
+// ── BACKUP CRON — runs every minute, checks schedule ─────────────────────────
+setInterval(() => {
+  routeAdminBackup.runScheduledBackup().catch(e => console.error('[backup-cron]', e.message));
 }, 60 * 1000);
 
 // ── PUNCH NOTIFICATION QUEUE ──────────────────────────────────────────────────
