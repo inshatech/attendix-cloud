@@ -6,6 +6,7 @@ const zlib      = require('zlib');
 const fs        = require('fs');
 const path      = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { EJSON }      = require('bson');
 
 const { requireAuth, requireRole } = require('../auth/middleware');
 const { adminApiLimiter, strictAdminLimiter } = require('../auth/rateLimits');
@@ -56,7 +57,7 @@ async function createBackupBuffer() {
   }
   payload.meta.totalDocuments = totalDocs;
 
-  const json   = JSON.stringify(payload);
+  const json   = EJSON.stringify(payload, { relaxed: false });
   const gzipped = await new Promise((resolve, reject) => {
     zlib.gzip(Buffer.from(json, 'utf8'), { level: 6 }, (err, buf) => {
       if (err) reject(err); else resolve(buf);
@@ -290,7 +291,7 @@ router.post('/backup/restore', strictAdminLimiter,
     });
 
     let payload;
-    try { payload = JSON.parse(raw.toString('utf8')); }
+    try { payload = EJSON.parse(raw.toString('utf8')); }
     catch { return res.status(400).json({ error: 'Backup file is corrupted or not valid JSON' }); }
 
     if (!payload?.collections || typeof payload.collections !== 'object')
@@ -305,7 +306,6 @@ router.post('/backup/restore', strictAdminLimiter,
       const col = db.collection(colName);
       await col.deleteMany({});
       if (docs.length > 0) {
-        // Convert $oid / $date MongoDB extended JSON if present
         await col.insertMany(docs, { ordered: false }).catch(() => {});
       }
       restored++;
