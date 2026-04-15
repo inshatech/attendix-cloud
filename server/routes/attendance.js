@@ -168,46 +168,36 @@ function getPunchType(log) {
 }
 
 // ── Helper — resolve in/out/worked from a day's punch logs ───────────────────
-// punchMode:
-//   '2-punch'   → first punch = in, last punch = out  (device-agnostic default)
-//   '4-punch'   → P1=in P2=break-out P3=break-in P4=out; net=(P2-P1)+(P4-P3)
-//                 Falls back to 2-punch when <4 punches exist
-//   'type-based'→ trust device punch-type (0/4=in, 1/5=out)
-function resolvePunches(dayLogs, punchMode) {
+// Always: first punch (by timestamp) = IN, last punch = OUT.
+// Punch type is completely ignored — any punch type can be first or last.
+// Break deduction uses shift config (isPaid=false breaks), not punch positions.
+function resolvePunches(dayLogs, shift) {
   if (!dayLogs || !dayLogs.length) return { inTime: null, outTime: null, workedMinutes: 0 };
 
-  const mode = punchMode || '2-punch';
+  // Sort by timestamp — first punch = IN, last punch = OUT
+  const sorted = [...dayLogs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const first  = sorted[0];
+  const last   = sorted.length > 1 ? sorted[sorted.length - 1] : null;
 
-  if (mode === 'type-based') {
-    const inLog  = dayLogs.find(l => { const pt=getPunchType(l); return pt===0||pt===4; }) || dayLogs[0];
-    const outLog = [...dayLogs].reverse().find(l => { const pt=getPunchType(l); return pt===1||pt===5; });
-    const inTime  = toHHMM(inLog?.timestamp);
-    const outTime = outLog ? toHHMM(outLog.timestamp) : null;
-    const workedMinutes = (outLog && inLog)
-      ? Math.round((new Date(outLog.timestamp) - new Date(inLog.timestamp)) / 60000)
-      : 0;
-    return { inTime, outTime, workedMinutes };
+  const inTime  = toHHMM(first.timestamp);
+  const outTime = last ? toHHMM(last.timestamp) : null;
+
+  if (!last) return { inTime, outTime: null, workedMinutes: 0 };
+
+  let workedMinutes = Math.round((new Date(last.timestamp) - new Date(first.timestamp)) / 60000);
+
+  // Auto-deduct unpaid breaks defined in shift config
+  if (shift?.breaks?.length) {
+    const breakDeductMins = shift.breaks
+      .filter(b => !b.isPaid && b.startTime && b.endTime)
+      .reduce((sum, b) => {
+        const [bsh, bsm] = b.startTime.split(':').map(Number);
+        const [beh, bem] = b.endTime.split(':').map(Number);
+        return sum + Math.max(0, (beh * 60 + bem) - (bsh * 60 + bsm));
+      }, 0);
+    workedMinutes = Math.max(0, workedMinutes - breakDeductMins);
   }
 
-  if (mode === '4-punch' && dayLogs.length >= 4) {
-    // Sorted ascending by timestamp (logs are already sorted)
-    const [p1, p2, p3, p4] = dayLogs;
-    const inTime  = toHHMM(p1.timestamp);
-    const outTime = toHHMM(p4.timestamp);
-    const seg1 = Math.round((new Date(p2.timestamp) - new Date(p1.timestamp)) / 60000);
-    const seg2 = Math.round((new Date(p4.timestamp) - new Date(p3.timestamp)) / 60000);
-    const workedMinutes = Math.max(0, seg1) + Math.max(0, seg2);
-    return { inTime, outTime, workedMinutes };
-  }
-
-  // Default: 2-punch — first punch in, last punch out
-  const inLog  = dayLogs[0];
-  const outLog = dayLogs.length > 1 ? dayLogs[dayLogs.length - 1] : null;
-  const inTime  = toHHMM(inLog.timestamp);
-  const outTime = outLog ? toHHMM(outLog.timestamp) : null;
-  const workedMinutes = outLog
-    ? Math.round((new Date(outLog.timestamp) - new Date(inLog.timestamp)) / 60000)
-    : 0;
   return { inTime, outTime, workedMinutes };
 }
 
@@ -394,7 +384,7 @@ router.get('/organizations/:orgId/attendance/today', requireAuth, generalApiLimi
         if (man) { if (man.status === 'late') lates++; continue; }
         const dayLogs = empDates[date] || [];
         if (!dayLogs.length) continue;
-        const { inTime: inT, outTime: outT, workedMinutes: wMins } = resolvePunches(dayLogs, shift?.punchMode);
+        const { inTime: inT, outTime: outT, workedMinutes: wMins } = resolvePunches(dayLogs, shift);
         const s = computeStatus(emp, shift, inT, outT, wMins, dow);
         if (s === 'late') lates++;
       }
@@ -422,7 +412,7 @@ router.get('/organizations/:orgId/attendance/today', requireAuth, generalApiLimi
       // Manual override takes priority
       const manual = manualByEmp[empId];
       if (manual) {
-        records.push({ ...empBase, inTime: manual.inTime, outTime: manual.outTime, workedMinutes: manual.workedMinutes || 0, lateMinutes: 0, overtimeMinutes: 0, status: manual.status, isManual: true, manualId: manual.manualId, reason: manual.reason, punches: [] });
+        records.push({ ...empBase, inTime: manual.inTime, outTime: manual.outTime, workedMinutes: manual.workedMinutes || 0, lateMinutes: computeLate(emp, shift, manual.inTime, todayDow), overtimeMinutes: 0, status: manual.status, isManual: true, manualId: manual.manualId, reason: manual.reason, punches: [] });
         continue;
       }
 
@@ -433,7 +423,16 @@ router.get('/organizations/:orgId/attendance/today', requireAuth, generalApiLimi
         continue;
       }
 
-      const { inTime, outTime, workedMinutes } = resolvePunches(empLogs, shift?.punchMode);
+      const { inTime, outTime, workedMinutes: resolvedWorked } = resolvePunches(empLogs, shift);
+
+      // Provisional worked minutes for ongoing shifts (clocked in, not out yet).
+      // Today is a live read-only view — never written to the DB.
+      // Uses actual first-punch timestamp (more precise than HH:MM string).
+      let workedMinutes = resolvedWorked;
+      if (!outTime && inTime) {
+        workedMinutes = Math.max(0, Math.round((Date.now() - new Date(empLogs[0].timestamp)) / 60000));
+      }
+
       let status = computeStatus(emp, shift, inTime, outTime, workedMinutes, todayDow);
       const lateMinutes  = computeLate(emp, shift, inTime, todayDow);
       const overtimeMinutes = computeOT(shift, workedMinutes);
@@ -574,7 +573,7 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
           if (man) { if (man.status === 'late') preLatesByEmp[empId][rangeStartMonth]++; continue; }
           const dayLogs = preByEmpDate[empId]?.[d] || [];
           if (!dayLogs.length) continue;
-          const { inTime: inT, workedMinutes: wMins } = resolvePunches(dayLogs, shift?.punchMode);
+          const { inTime: inT, workedMinutes: wMins } = resolvePunches(dayLogs, shift);
           const s = computeStatus(emp, shift, inT, null, wMins, dow);
           if (s === 'late') preLatesByEmp[empId][rangeStartMonth]++;
         }
@@ -635,7 +634,7 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
           continue;
         }
 
-        const { inTime, outTime, workedMinutes } = resolvePunches(dayLogs, shift?.punchMode);
+        const { inTime, outTime, workedMinutes } = resolvePunches(dayLogs, shift);
         let status = computeStatus(emp, shift, inTime, outTime, workedMinutes, dow);
 
         // Apply monthly late allowance
@@ -773,7 +772,7 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
           if (man) { if (man.status === 'late') payPreLatesByEmp[emp.employeeId][payRangeStartMonth]++; continue; }
           const dl = preByEmpDate4[emp.employeeId]?.[dd] || [];
           if (!dl.length) continue;
-          const { inTime: inT, workedMinutes: wM } = resolvePunches(dl, shift?.punchMode);
+          const { inTime: inT, workedMinutes: wM } = resolvePunches(dl, shift);
           if (computeStatus(emp, shift, inT, null, wM, dow) === 'late') payPreLatesByEmp[emp.employeeId][payRangeStartMonth]++;
         }
       }
@@ -819,7 +818,7 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
           continue;
         }
 
-        const { inTime, outTime, workedMinutes: wMins } = resolvePunches(dayLogs, shift?.punchMode);
+        const { inTime, outTime, workedMinutes: wMins } = resolvePunches(dayLogs, shift);
         let status = computeStatus(emp, shift, inTime, outTime, wMins, dow);
 
         // Apply monthly late allowance (same logic as range endpoint)
@@ -1108,7 +1107,7 @@ router.get('/organizations/:orgId/attendance/punch-report', requireAuth, general
 
       for (const [date, dayLogs] of Object.entries(empDays)) {
         if (dayLogs.length < minP) continue;
-        const { inTime, outTime, workedMinutes } = resolvePunches(dayLogs, shift?.punchMode);
+        const { inTime, outTime, workedMinutes } = resolvePunches(dayLogs, shift);
 
         // Anomaly flags
         const flags = [];

@@ -160,17 +160,30 @@ async function buildReportData(orgId, dateStr, timezone, refs) {
       continue;
     }
 
-    // First in-punch, last out-punch
-    const inLog  = empLogs[0];
-    const outLog = empLogs.length > 1 ? empLogs[empLogs.length - 1] : null;
-    const inTime = toHHMMtz(inLog.timestamp, tz);
+    // Sort by timestamp — first punch = IN, last punch = OUT (punch type ignored)
+    const sorted  = [...empLogs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const inLog   = sorted[0];
+    const outLog  = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+    const inTime  = toHHMMtz(inLog.timestamp, tz);
     const outTime = outLog ? toHHMMtz(outLog.timestamp, tz) : null;
-    const worked  = workedMins(inLog, outLog);
 
-    // Determine status
+    // Raw worked = last − first, then deduct unpaid breaks from shift config
+    let worked = workedMins(inLog, outLog);
+    if (outLog && shift?.breaks?.length) {
+      const breakDeductMins = shift.breaks
+        .filter(b => !b.isPaid && b.startTime && b.endTime)
+        .reduce((sum, b) => {
+          const [bsh, bsm] = b.startTime.split(':').map(Number);
+          const [beh, bem] = b.endTime.split(':').map(Number);
+          return sum + Math.max(0, (beh * 60 + bem) - (bsh * 60 + bsm));
+        }, 0);
+      worked = Math.max(0, worked - breakDeductMins);
+    }
+
+    // Determine status — same thresholds as attendance.js computeStatus
     let status = 'present';
-    const lateGrace   = emp.graceMinutes || shift?.graceMinutes || 0;
-    const halfDayMins = emp.halfDayMinutes || shift?.halfDayMinutes || 240;
+    const lateGrace   = emp.graceMinutes   || shift?.attendanceRules?.graceLateMinutes   || shift?.graceMinutes   || 0;
+    const halfDayMins = emp.halfDayMinutes || shift?.attendanceRules?.halfDayAfterMinutes || shift?.halfDayMinutes || 240;
     if (shift?.defaultInTime && inTime) {
       const [sh, sm] = shift.defaultInTime.split(':').map(Number);
       const [ih, im] = inTime.split(':').map(Number);
@@ -197,12 +210,12 @@ async function buildReportData(orgId, dateStr, timezone, refs) {
 // ── Build HTML email ──────────────────────────────────────────────────────────
 
 const STATUS_COLOR = {
-  present:   { bg: 'rgba(52,211,153,.12)',  border: 'rgba(52,211,153,.3)',  text: '#34d399', label: 'Present'  },
-  late:      { bg: 'rgba(251,191,36,.12)',  border: 'rgba(251,191,36,.3)',  text: '#fbbf24', label: 'Late'     },
-  'half-day':{ bg: 'rgba(167,139,250,.12)', border: 'rgba(167,139,250,.3)',text: '#a78bfa', label: 'Half Day'  },
-  absent:    { bg: 'rgba(248,113,113,.12)', border: 'rgba(248,113,113,.3)', text: '#f87171', label: 'Absent'   },
-  'week-off':{ bg: 'rgba(100,116,139,.1)',  border: 'rgba(100,116,139,.25)',text: '#64748b', label: 'Week Off'  },
-  holiday:   { bg: 'rgba(56,189,248,.1)',   border: 'rgba(56,189,248,.25)', text: '#38bdf8', label: 'Holiday'   },
+  present:   { bg: 'rgba(22,163,74,.1)',   border: 'rgba(22,163,74,.3)',   text: '#16a34a', label: 'Present'  },
+  late:      { bg: 'rgba(217,119,6,.1)',   border: 'rgba(217,119,6,.3)',   text: '#d97706', label: 'Late'     },
+  'half-day':{ bg: 'rgba(124,58,237,.1)',  border: 'rgba(124,58,237,.3)',  text: '#7c3aed', label: 'Half Day' },
+  absent:    { bg: 'rgba(220,38,38,.1)',   border: 'rgba(220,38,38,.3)',   text: '#dc2626', label: 'Absent'   },
+  'week-off':{ bg: 'rgba(100,116,139,.1)', border: 'rgba(100,116,139,.25)',text: '#475569', label: 'Week Off' },
+  holiday:   { bg: 'rgba(2,132,199,.1)',   border: 'rgba(2,132,199,.25)',  text: '#0284c7', label: 'Holiday'  },
 };
 
 async function buildEmailHtml(data) {
@@ -216,80 +229,118 @@ async function buildEmailHtml(data) {
   const fmtDate = new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
   const summaryCards = [
-    { label: 'Present',  value: present,  color: '#34d399' },
-    { label: 'Late',     value: late,     color: '#fbbf24' },
-    { label: 'Half Day', value: halfDay,  color: '#a78bfa' },
-    { label: 'Absent',   value: absent,   color: '#f87171' },
-    holiday > 0 ? { label: 'Holiday',  value: holiday,  color: '#38bdf8' } : null,
+    { label: 'Present',  value: present,  color: '#16a34a' },
+    { label: 'Late',     value: late,     color: '#d97706' },
+    { label: 'Half Day', value: halfDay,  color: '#7c3aed' },
+    { label: 'Absent',   value: absent,   color: '#dc2626' },
+    holiday > 0 ? { label: 'Holiday', value: holiday, color: '#0284c7' } : null,
     { label: 'Week Off', value: weekOff,  color: '#64748b' },
   ].filter(Boolean).map(c => `
-    <td style="padding:0 6px;text-align:center;">
-      <div style="background:#0d0d1a;border:1px solid #1e1e35;border-radius:10px;padding:12px 16px;min-width:70px;">
-        <p style="margin:0;font-size:24px;font-weight:800;color:${c.color};font-family:'Courier New',monospace;">${c.value}</p>
-        <p style="margin:4px 0 0;font-size:10px;color:#4a4a72;text-transform:uppercase;letter-spacing:0.1em;">${c.label}</p>
-      </div>
-    </td>`).join('');
+    <div class="sc" style="flex:1;min-width:0;background:#f0f2ff;border:1px solid #dde0f0;border-radius:10px;padding:12px 8px;text-align:center;box-sizing:border-box;">
+      <p style="margin:0;font-size:22px;font-weight:800;color:${c.color};font-family:'Courier New',monospace;line-height:1;">${c.value}</p>
+      <p style="margin:5px 0 0;font-size:9px;color:#5050a0;text-transform:uppercase;letter-spacing:0.08em;white-space:nowrap;">${c.label}</p>
+    </div>`).join('');
 
   const tableRows = rows.map(r => {
     const sc = STATUS_COLOR[r.status] || STATUS_COLOR.absent;
-    return `<tr style="border-bottom:1px solid #1a1a2e;">
-      <td style="padding:9px 12px;font-size:13px;color:#d0d0ec;font-weight:600;">${r.name}</td>
-      <td style="padding:9px 8px;font-size:11px;color:#58a6ff;font-family:monospace;">${r.code}</td>
-      <td style="padding:9px 8px;font-size:12px;color:#7070a0;">${r.dept}</td>
-      <td style="padding:9px 8px;font-size:13px;color:#e0e0f0;font-family:monospace;">${r.inTime || '—'}</td>
-      <td style="padding:9px 8px;font-size:13px;color:#e0e0f0;font-family:monospace;">${r.outTime || '—'}</td>
-      <td style="padding:9px 8px;font-size:12px;color:#7070a0;font-family:monospace;">${fmtMins(r.worked)}</td>
-      <td style="padding:9px 8px;">
+    return `<tr class="tr-sep" style="border-bottom:1px solid #eeeef8;">
+      <td class="tbl-name" style="padding:9px 12px;font-size:13px;color:#1a1a2e;font-weight:600;">${r.name}</td>
+      <td class="tbl-cell hide-mob" style="padding:9px 8px;font-size:11px;color:#58a6ff;font-family:monospace;">${r.code}</td>
+      <td class="tbl-cell hide-mob" style="padding:9px 8px;font-size:12px;color:#5050a0;">${r.dept}</td>
+      <td class="tbl-cell" style="padding:9px 8px;font-size:13px;color:#1a1a2e;font-family:monospace;">${r.inTime || '—'}</td>
+      <td class="tbl-cell" style="padding:9px 8px;font-size:13px;color:#1a1a2e;font-family:monospace;">${r.outTime || '—'}</td>
+      <td class="tbl-cell" style="padding:9px 8px;font-size:12px;color:#5050a0;font-family:monospace;">${fmtMins(r.worked)}</td>
+      <td class="tbl-cell" style="padding:9px 8px;">
         <span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;
           background:${sc.bg};border:1px solid ${sc.border};color:${sc.text};">${sc.label}</span>
       </td>
     </tr>`;
   }).join('');
 
+  const year = new Date().getFullYear();
+  const poweredBy = brand.companyName || 'Insha Technologies';
+
   return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#07070f;font-family:'Segoe UI',Arial,sans-serif;">
-<div style="max-width:680px;margin:32px auto;padding:0 12px;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    @media only screen and (max-width:600px) {
+      .aw   { padding:0 4px !important; margin:10px auto !important; }
+      .ah   { padding:14px 14px !important; flex-direction:column !important; align-items:flex-start !important; gap:8px !important; }
+      .ah-right { display:none !important; }
+      .as   { padding:14px 14px !important; }
+      .at   { padding:0 !important; }
+      .af   { padding:12px 14px !important; }
+      .cards-wrap { flex-wrap:wrap !important; gap:6px !important; }
+      .sc   { flex:1 1 28% !important; padding:10px 6px !important; }
+      .hide-mob { display:none !important; }
+      .tbl-cell { padding:8px 6px !important; font-size:12px !important; }
+      .tbl-name { padding:8px 10px !important; font-size:13px !important; }
+    }
+    @media (prefers-color-scheme:dark) {
+      .outer { background:#07070f !important; }
+      .ah    { background:#111121 !important; border-color:#1e1e35 !important; }
+      .as    { background:#0d0d1a !important; border-color:#1e1e35 !important; }
+      .at    { background:#111121 !important; border-color:#1e1e35 !important; }
+      .af    { background:#0a0a14 !important; border-color:#1e1e35 !important; }
+      .sc    { background:#0d0d1a !important; border-color:#1e1e35 !important; }
+      .c-name { color:#e0e0f0 !important; }
+      .c-sub  { color:#5050a0 !important; }
+      .c-val  { color:#e0e0f0 !important; }
+      .c-hdr  { color:#3a3a58 !important; background:#0a0a14 !important; }
+      .c-foot { color:#5050a0 !important; }
+      .tr-sep { border-color:#1a1a2e !important; }
+      .th-row { background:#0a0a14 !important; border-color:#1e1e35 !important; }
+    }
+  </style>
+</head>
+<body class="outer" style="margin:0;padding:0;background:#f0f0f8;font-family:'Segoe UI',Arial,sans-serif;">
+<div class="aw" style="max-width:680px;margin:32px auto;padding:0 12px;">
 
   <!-- Header -->
-  <div style="background:#111121;border:1px solid #1e1e35;border-radius:14px 14px 0 0;padding:20px 28px;display:flex;align-items:center;justify-content:space-between;">
+  <div class="ah" style="background:#ffffff;border:1px solid #dde0f0;border-radius:14px 14px 0 0;padding:20px 28px;display:flex;align-items:center;justify-content:space-between;">
     <div style="display:flex;align-items:center;gap:12px;">
       <div style="width:36px;height:36px;border-radius:9px;background:rgba(88,166,255,.12);border:1px solid rgba(88,166,255,.25);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
         ${logoBlock}
       </div>
       <div>
-        <p style="margin:0;color:#e0e0f0;font-weight:700;font-size:0.9rem;">${brand.appName}</p>
-        <p style="margin:2px 0 0;color:#3a3a58;font-size:0.65rem;font-family:monospace;">Daily Attendance Report</p>
+        <p class="c-name" style="margin:0;color:#1a1a2e;font-weight:700;font-size:0.9rem;">${brand.appName}</p>
+        <p class="c-sub" style="margin:2px 0 0;color:#9090b0;font-size:0.65rem;font-family:monospace;">Daily Attendance Report</p>
       </div>
     </div>
-    <div style="text-align:right;">
-      <p style="margin:0;color:#7070a0;font-size:0.7rem;font-family:monospace;">${org.name}</p>
-      <p style="margin:2px 0 0;color:#4a4a72;font-size:0.65rem;">${fmtDate}</p>
+    <div class="ah-right" style="text-align:right;">
+      <p class="c-sub" style="margin:0;color:#5050a0;font-size:0.7rem;font-family:monospace;">${org.name}</p>
+      <p class="c-sub" style="margin:2px 0 0;color:#9090b0;font-size:0.65rem;">${fmtDate}</p>
     </div>
   </div>
 
   <!-- Summary cards -->
-  <div style="background:#0d0d1a;border:1px solid #1e1e35;border-top:none;padding:20px 28px;">
-    <p style="margin:0 0 14px;color:#4a4a72;font-size:0.65rem;font-family:monospace;text-transform:uppercase;letter-spacing:0.12em;">Summary · ${total} employees</p>
-    <table style="border-collapse:collapse;margin:0 -6px;"><tr>${summaryCards}</tr></table>
+  <div class="as" style="background:#ffffff;border:1px solid #dde0f0;border-top:none;padding:20px 28px;">
+    <p class="c-sub" style="margin:0 0 14px;color:#5050a0;font-size:0.65rem;font-family:monospace;text-transform:uppercase;letter-spacing:0.12em;">Summary · ${total} employees · ${org.name} · ${fmtDate}</p>
+    <div class="cards-wrap" style="display:flex;gap:8px;">${summaryCards}</div>
   </div>
 
   ${holidayName ? `
   <!-- Holiday banner -->
-  <div style="background:rgba(56,189,248,.07);border:1px solid rgba(56,189,248,.2);border-top:none;padding:11px 28px;display:flex;align-items:center;gap:10px;">
+  <div style="background:rgba(2,132,199,.07);border:1px solid rgba(2,132,199,.2);border-top:none;padding:11px 20px;display:flex;align-items:center;gap:10px;">
     <span style="font-size:14px;">🎉</span>
-    <p style="margin:0;color:#38bdf8;font-size:12px;font-weight:600;">Today is a public holiday: <strong>${holidayName}</strong></p>
+    <p style="margin:0;color:#0284c7;font-size:12px;font-weight:600;">Today is a public holiday: <strong>${holidayName}</strong></p>
   </div>` : ''}
 
   <!-- Employee table -->
-  <div style="background:#111121;border:1px solid #1e1e35;border-top:none;">
-    <table style="width:100%;border-collapse:collapse;">
+  <div class="at" style="background:#ffffff;border:1px solid #dde0f0;border-top:none;overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;min-width:320px;">
       <thead>
-        <tr style="background:#0a0a14;border-bottom:1px solid #1e1e35;">
-          ${['Employee','Code','Dept','In','Out','Hours','Status'].map(h =>
-            `<th style="padding:9px ${h==='Employee'?'12':'8'}px;text-align:left;font-size:10px;font-family:monospace;color:#3a3a58;text-transform:uppercase;letter-spacing:0.1em;">${h}</th>`
-          ).join('')}
+        <tr class="th-row" style="background:#f0f2ff;border-bottom:1px solid #dde0f0;">
+          <th class="c-hdr tbl-name" style="padding:9px 12px;text-align:left;font-size:10px;font-family:monospace;color:#9090b0;text-transform:uppercase;letter-spacing:0.1em;">Employee</th>
+          <th class="c-hdr tbl-cell hide-mob" style="padding:9px 8px;text-align:left;font-size:10px;font-family:monospace;color:#9090b0;text-transform:uppercase;letter-spacing:0.1em;">Code</th>
+          <th class="c-hdr tbl-cell hide-mob" style="padding:9px 8px;text-align:left;font-size:10px;font-family:monospace;color:#9090b0;text-transform:uppercase;letter-spacing:0.1em;">Dept</th>
+          <th class="c-hdr tbl-cell" style="padding:9px 8px;text-align:left;font-size:10px;font-family:monospace;color:#9090b0;text-transform:uppercase;letter-spacing:0.1em;">In</th>
+          <th class="c-hdr tbl-cell" style="padding:9px 8px;text-align:left;font-size:10px;font-family:monospace;color:#9090b0;text-transform:uppercase;letter-spacing:0.1em;">Out</th>
+          <th class="c-hdr tbl-cell" style="padding:9px 8px;text-align:left;font-size:10px;font-family:monospace;color:#9090b0;text-transform:uppercase;letter-spacing:0.1em;">Hrs</th>
+          <th class="c-hdr tbl-cell" style="padding:9px 8px;text-align:left;font-size:10px;font-family:monospace;color:#9090b0;text-transform:uppercase;letter-spacing:0.1em;">Status</th>
         </tr>
       </thead>
       <tbody>${tableRows}</tbody>
@@ -298,15 +349,17 @@ async function buildEmailHtml(data) {
 
   ${unlinkedPunches > 0 ? `
   <!-- Unlinked warning -->
-  <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-top:none;padding:12px 28px;display:flex;align-items:center;gap:10px;">
-    <span style="color:#fbbf24;font-size:14px;">⚠</span>
-    <p style="margin:0;color:#fbbf24;font-size:12px;">${unlinkedPunches} punch record${unlinkedPunches!==1?'s':''} from unlinked machine users — link employees in the portal to capture them.</p>
+  <div style="background:rgba(217,119,6,.06);border:1px solid rgba(217,119,6,.2);border-top:none;padding:12px 20px;display:flex;align-items:center;gap:10px;">
+    <span style="color:#d97706;font-size:14px;">⚠</span>
+    <p style="margin:0;color:#d97706;font-size:12px;">${unlinkedPunches} punch record${unlinkedPunches!==1?'s':''} from unlinked machine users — link employees in the portal to capture them.</p>
   </div>` : ''}
 
   <!-- Footer -->
-  <div style="background:#0a0a14;border:1px solid #1e1e35;border-top:none;border-radius:0 0 14px 14px;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;">
-    <p style="margin:0;color:#2a2a42;font-size:10px;">Automated daily report · Do not reply</p>
-    <p style="margin:0;color:#2a2a42;font-size:10px;font-family:monospace;">${brand.appName}${brand.companyName ? ` · ${brand.companyName}` : ''}</p>
+  <div class="af" style="background:#f8f8fc;border:1px solid #dde0f0;border-top:none;border-radius:0 0 14px 14px;padding:14px 28px;text-align:center;">
+    <p class="c-foot" style="margin:0;color:#9090b0;font-size:10px;">Automated daily report · Do not reply</p>
+    <p class="c-foot" style="margin:6px 0 0;color:#9090b0;font-size:10px;">
+      © ${year} ${brand.appName} &nbsp;|&nbsp; ❤️ Powered by: <a href="https://www.inshatech.com" style="color:#58a6ff;text-decoration:none;font-weight:700;">${poweredBy}</a>
+    </p>
   </div>
 
 </div>
