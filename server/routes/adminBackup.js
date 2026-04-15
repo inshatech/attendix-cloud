@@ -364,7 +364,7 @@ async function runScheduledBackup() {
     const parts = Object.fromEntries(
       new Intl.DateTimeFormat('en-CA', {
         timeZone: tz, year:'numeric', month:'2-digit', day:'2-digit',
-        hour:'2-digit', minute:'2-digit', weekday:'short', hour12: false,
+        hour:'2-digit', minute:'2-digit', weekday:'short', hourCycle: 'h23',
       }).formatToParts(now).map(p => [p.type, p.value])
     );
     const currentTime = `${parts.hour}:${parts.minute}`;

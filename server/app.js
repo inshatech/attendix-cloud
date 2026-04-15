@@ -439,10 +439,10 @@ setInterval(async () => {
   } catch (e) { console.error('[report-cron] error:', e.message); }
 }, 60 * 1000);
 
-// ── BACKUP CRON — runs every minute, checks schedule ─────────────────────────
+// ── BACKUP CRON — runs every 30s (2 chances per minute), dedup guard prevents double-run ──
 setInterval(() => {
   routeAdminBackup.runScheduledBackup().catch(e => console.error('[backup-cron]', e.message));
-}, 60 * 1000);
+}, 30 * 1000);
 
 // ── PUNCH NOTIFICATION QUEUE ──────────────────────────────────────────────────
 const NotificationQueue  = require('./models/NotificationQueue');

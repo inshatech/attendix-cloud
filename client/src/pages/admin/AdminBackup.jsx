@@ -137,6 +137,17 @@ export default function AdminBackup() {
     finally { setCreateBusy(false) }
   }
 
+  async function downloadFile(filename) {
+    try {
+      const res = await api.get(`/admin/backup/download/${encodeURIComponent(filename)}`, { responseType: 'arraybuffer' })
+      const blob = new Blob([res], { type: 'application/gzip' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) { toast(e.message, 'error') }
+  }
+
   async function sendEmailNow() {
     setEmailBusy(true)
     try {
@@ -264,11 +275,11 @@ export default function AdminBackup() {
                     <p style={{ fontSize:'0.8125rem', fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.filename}</p>
                     <p style={{ fontSize:'0.72rem', color:'var(--text-dim)', marginTop:2 }}>{f.size} · {fmtDate(f.createdAt)}</p>
                   </div>
-                  <a href={`/admin/backup/download/${f.filename}`}
-                    style={{ color:'var(--accent)', flexShrink:0, display:'flex', alignItems:'center' }}
+                  <button type="button" onClick={() => downloadFile(f.filename)}
+                    style={{ color:'var(--accent)', flexShrink:0, display:'flex', alignItems:'center', background:'none', border:'none', cursor:'pointer', padding:0 }}
                     title="Download">
                     <Download size={14}/>
-                  </a>
+                  </button>
                 </div>
               ))}
             </div>
