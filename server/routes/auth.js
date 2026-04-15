@@ -70,18 +70,22 @@ async function addTrustedDevice(userId, rawToken, label) {
   });
 }
 
-// Pre-auth sessions for 2FA gate (5-min TTL, in-memory)
-const preAuth = new Map();
-function mkPreAuth(userId) {
+// Pre-auth sessions for 2FA gate (5-min TTL, DB-backed so restarts don't break it)
+async function mkPreAuth(userId) {
   const t = uuidv4();
-  preAuth.set(t, { userId, ts: Date.now() });
-  setTimeout(() => preAuth.delete(t), 5 * 60 * 1000);
+  await AuthUser.updateOne(
+    { userId },
+    { $set: { preAuthToken: t, preAuthExpires: new Date(Date.now() + 5 * 60 * 1000) } }
+  );
   return t;
 }
-function usePreAuth(t) {
-  const s = preAuth.get(t);
-  if (!s || Date.now() - s.ts > 5 * 60 * 1000) { preAuth.delete(t); return null; }
-  preAuth.delete(t); return s.userId;
+async function usePreAuth(t) {
+  const u = await AuthUser.findOneAndUpdate(
+    { preAuthToken: t, preAuthExpires: { $gt: new Date() } },
+    { $unset: { preAuthToken: '', preAuthExpires: '' } },
+    { new: false }
+  ).lean();
+  return u ? u.userId : null;
 }
 
 // Pending contact changes (in-memory, 10-min TTL)
@@ -151,7 +155,7 @@ router.post('/verify-otp', otpVerifyLimiter, async (req, res) => {
         await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: req.ip } });
         return res.json({ status: 'success', role: u.role, name: u.name, ...tokens });
       }
-      return res.json({ status: 'success', requires2FA: true, preAuthToken: mkPreAuth(u.userId) });
+      return res.json({ status: 'success', requires2FA: true, preAuthToken: await mkPreAuth(u.userId) });
     }
 
     const tokens = await issueTokens(u, req.headers['user-agent']);
@@ -182,7 +186,7 @@ router.post('/login', loginLimiter, async (req, res) => {
         await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: req.ip } });
         return res.json({ status: 'success', role: u.role, name: u.name, ...tokens });
       }
-      return res.json({ status: 'success', requires2FA: true, preAuthToken: mkPreAuth(u.userId) });
+      return res.json({ status: 'success', requires2FA: true, preAuthToken: await mkPreAuth(u.userId) });
     }
 
     const tokens = await issueTokens(u, req.headers['user-agent']);
@@ -196,7 +200,7 @@ router.post('/totp/verify', loginLimiter, async (req, res) => {
   try {
     const { preAuthToken, totpToken, backupCode, rememberDevice } = req.body;
     if (!preAuthToken) return res.status(400).json({ error: 'preAuthToken required' });
-    const userId = usePreAuth(preAuthToken);
+    const userId = await usePreAuth(preAuthToken);
     if (!userId) return res.status(401).json({ error: 'Session expired. Log in again.' });
     const u = await AuthUser.findOne({ userId });
     if (!u || !u.isActive) return res.status(401).json({ error: 'Account not found' });
@@ -585,9 +589,7 @@ router.post('/google', async (req, res) => {
         const { accessToken, refreshToken, expiresIn } = await issueTokens(user, ua);
         return res.json({ status: 'success', ...tokenPayload(user), accessToken, refreshToken, expiresIn });
       }
-      const pre = uuidv4();
-      await AuthUser.updateOne({ userId: user.userId }, { $set: { preAuthToken: pre, preAuthExpires: new Date(Date.now() + 300000) } });
-      return res.json({ requires2FA: true, preAuthToken: pre });
+      return res.json({ requires2FA: true, preAuthToken: await mkPreAuth(user.userId) });
     }
 
     const ua = req.headers['user-agent'] || '';
