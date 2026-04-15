@@ -25,7 +25,8 @@ const META = {
   // Live Chat
   bridge_app:  { icon: Wifi,   label: 'Bridge App Settings', color:'#58a6ff', desc:'Windows desktop bridge — download link, version, file size, and server credentials shown to users on the Bridge Setup page.' },
   google_auth: { icon: Globe2, label: 'Google Sign-In', color:'#4285f4', desc:'Allow users to sign in with their Google account via OAuth 2.0.' },
-  tawk:      { icon: MessageCircle, label: 'Tawk.to Live Chat', color: '#03a84e', desc: 'Free live chat widget for users. Manage from tawk.to dashboard.', category: 'chat' },
+  tawk:      { icon: MessageCircle, label: 'Tawk.to Live Chat',     color: '#03a84e', desc: 'Free live chat widget for users. Manage from tawk.to dashboard.', category: 'chat' },
+  turnstile: { icon: Shield,        label: 'Cloudflare Turnstile',  color: '#f6821f', desc: 'Privacy-friendly CAPTCHA. Protects login, register & forgot-password from bots.', category: 'security' },
   // Payment Gateways
   razorpay:  { icon: CreditCard, label: 'Razorpay',  color: '#2d82f5', desc: 'UPI, cards, netbanking, wallets. Auto-activates subscription on payment.', category: 'payment' },
   phonepe:   { icon: Zap,        label: 'PhonePe',   color: '#5f259f', desc: 'UPI-first payment gateway. Webhook auto-activates subscriptions.', category: 'payment' },
@@ -109,6 +110,13 @@ const FIELDS = {
   tawk: [
     { k:'propertyId', l:'Property ID',  t:'text', ph:'64abc123def456789abc1234 (from tawk.to Dashboard → Administration → Property)' },
     { k:'widgetId',   l:'Widget ID',    t:'text', ph:'default (leave as default unless you have multiple widgets)' },
+  ],
+  turnstile: [
+    { k:'siteKey',          l:'Site Key',    t:'text',     ph:'0x4AAAAAAAxxxxxxxx (from Cloudflare Dashboard → Turnstile)' },
+    { k:'secretKey',        l:'Secret Key',  t:'password', ph:'0x4AAAAAAAxxxxxxxx-xxxx (never share this)' },
+    { k:'onLogin',          t:'bool', default: false },
+    { k:'onRegister',       t:'bool', default: true  },
+    { k:'onForgotPassword', t:'bool', default: true  },
   ],
   ccavenue: [
     { k:'merchantId',  l:'Merchant ID',     t:'text',     ph:'12345' },
@@ -773,7 +781,11 @@ function PluginCard({ plugin, onRefresh }) {
     const cfg = plugin.config || {}
     const f = {}
     for (const field of FIELDS[plugin.name] || []) {
-      f[field.k] = (field.t === 'password' && cfg[field.k]) ? '••••••••' : (cfg[field.k] ?? '')
+      if (field.t === 'bool') {
+        f[field.k] = cfg[field.k] ?? field.default ?? false
+      } else {
+        f[field.k] = (field.t === 'password' && cfg[field.k]) ? '••••••••' : (cfg[field.k] ?? '')
+      }
     }
     setForm(f)
     setChecks({ enforceForAdmins: cfg.enforceForAdmins||false, enforceForSupport: cfg.enforceForSupport||false, enforceForUsers: cfg.enforceForUsers||false })
@@ -873,8 +885,10 @@ function PluginCard({ plugin, onRefresh }) {
 
               {/* Fields (skip downloadUrl for bridge_app — handled above) */}
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                {(FIELDS[plugin.name] || []).filter(f => !(plugin.name === 'bridge_app' && f.k === 'downloadUrl')).map(f => (
-                  <Input key={f.k} label={f.l} type={f.t} value={form[f.k]||''} onChange={e => setForm(s => ({...s,[f.k]:e.target.value}))} placeholder={f.ph}/>
+                {(FIELDS[plugin.name] || [])
+                  .filter(f => f.t !== 'bool' && !(plugin.name === 'bridge_app' && f.k === 'downloadUrl'))
+                  .map(f => (
+                    <Input key={f.k} label={f.l} type={f.t} value={form[f.k]||''} onChange={e => setForm(s => ({...s,[f.k]:e.target.value}))} placeholder={f.ph}/>
                 ))}
               </div>
 
@@ -903,6 +917,40 @@ function PluginCard({ plugin, onRefresh }) {
                   </ol>
                 </div>
               )}
+              {/* Turnstile page toggles + setup guide */}
+              {plugin.name === 'turnstile' && (
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <p style={{ fontSize:'0.75rem', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.06em', margin:0 }}>Apply on pages</p>
+                  {[
+                    { k:'onLogin',          l:'Login page' },
+                    { k:'onRegister',       l:'Register page' },
+                    { k:'onForgotPassword', l:'Forgot Password page' },
+                  ].map(({ k, l }) => (
+                    <label key={k} style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
+                      <div onClick={() => setForm(f => ({ ...f, [k]: !f[k] }))}
+                        style={{
+                          width:36, height:20, borderRadius:99, padding:2, transition:'all .2s', flexShrink:0,
+                          background: form[k] ? '#f6821f' : 'var(--border)',
+                          display:'flex', alignItems:'center', justifyContent: form[k] ? 'flex-end' : 'flex-start',
+                        }}>
+                        <div style={{ width:16, height:16, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,.3)' }}/>
+                      </div>
+                      <span style={{ fontSize:'0.8125rem', color:'var(--text-secondary)' }}>{l}</span>
+                    </label>
+                  ))}
+                  <div style={{ padding:'12px 16px', borderRadius:12, background:'rgba(246,130,31,.07)', border:'1px solid rgba(246,130,31,.2)', marginTop:4 }}>
+                    <p style={{ fontSize:'0.875rem', fontWeight:700, color:'#f6821f', margin:'0 0 6px' }}>📋 How to get your keys</p>
+                    <ol style={{ margin:0, paddingLeft:18, display:'flex', flexDirection:'column', gap:4 }}>
+                      <li style={{ fontSize:'0.8125rem', color:'var(--text-muted)' }}>Go to <strong>dash.cloudflare.com</strong> → Turnstile</li>
+                      <li style={{ fontSize:'0.8125rem', color:'var(--text-muted)' }}>Click <strong>Add site</strong> → enter your domain → choose <strong>Invisible</strong> widget type</li>
+                      <li style={{ fontSize:'0.8125rem', color:'var(--text-muted)' }}>Copy <strong>Site Key</strong> (public) and <strong>Secret Key</strong> (private) from the widget settings</li>
+                      <li style={{ fontSize:'0.8125rem', color:'var(--text-muted)' }}>Paste both above and enable the plugin</li>
+                    </ol>
+                    <p style={{ fontSize:'0.78rem', color:'#7a4a1e', marginTop:6, marginBottom:0 }}>Free tier — unlimited verifications. No checkbox shown to users (invisible mode).</p>
+                  </div>
+                </div>
+              )}
+
               {/* Tawk.to setup guide */}
               {plugin.name === 'tawk' && (
                 <div style={{ padding:'12px 16px', borderRadius:12, background:'rgba(3,168,78,.07)', border:'1px solid rgba(3,168,78,.2)', display:'flex', flexDirection:'column', gap:6 }}>
@@ -1008,6 +1056,7 @@ export default function AdminPlugins() {
   const BRIDGE_GWS   = ['bridge_app']
   const AUTH_GWS     = ['google_auth']
   const CHAT_GWS     = ['tawk']
+  const SECURITY_GWS = ['turnstile']
   const ABOUT_GWS    = ['about_us']
   const LEGAL_GWS    = ['legal_pages']
   const enabled      = plugins.filter(p => p.enabled).length
@@ -1015,11 +1064,12 @@ export default function AdminPlugins() {
   const activeGW     = plugins.filter(p => PAYMENT_GWS.includes(p.name) && p.enabled).length
   const aboutPlugin  = plugins.find(p => p.name === 'about_us')
   const legalPlugin  = plugins.find(p => p.name === 'legal_pages')
-  const integrations = plugins.filter(p => !PAYMENT_GWS.includes(p.name) && !CHAT_GWS.includes(p.name) && !AUTH_GWS.includes(p.name) && !BRIDGE_GWS.includes(p.name) && !ABOUT_GWS.includes(p.name) && !LEGAL_GWS.includes(p.name))
-  const gateways     = plugins.filter(p => PAYMENT_GWS.includes(p.name))
-  const authPlugins  = plugins.filter(p => AUTH_GWS.includes(p.name))
-  const bridgePlugins = plugins.filter(p => BRIDGE_GWS.includes(p.name))
-  const chatPlugins  = plugins.filter(p => CHAT_GWS.includes(p.name))
+  const integrations   = plugins.filter(p => !PAYMENT_GWS.includes(p.name) && !CHAT_GWS.includes(p.name) && !AUTH_GWS.includes(p.name) && !BRIDGE_GWS.includes(p.name) && !ABOUT_GWS.includes(p.name) && !LEGAL_GWS.includes(p.name) && !SECURITY_GWS.includes(p.name))
+  const gateways       = plugins.filter(p => PAYMENT_GWS.includes(p.name))
+  const authPlugins    = plugins.filter(p => AUTH_GWS.includes(p.name))
+  const bridgePlugins  = plugins.filter(p => BRIDGE_GWS.includes(p.name))
+  const chatPlugins    = plugins.filter(p => CHAT_GWS.includes(p.name))
+  const securityPlugins = plugins.filter(p => SECURITY_GWS.includes(p.name))
 
   return (
     <AdminPage>
@@ -1070,6 +1120,13 @@ export default function AdminPlugins() {
             </div>
           </div>
         )}
+        {/* Security */}
+        <div>
+          <p style={{ fontSize:'0.8125rem', fontWeight:700, color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12 }}>Security</p>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {securityPlugins.map(p => <PluginCard key={p.name} plugin={p} onRefresh={load}/>)}
+          </div>
+        </div>
         {/* Live Chat */}
         <div>
           <p style={{ fontSize:'0.8125rem', fontWeight:700, color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12 }}>Live Chat</p>

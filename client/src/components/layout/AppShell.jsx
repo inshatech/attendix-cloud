@@ -14,7 +14,7 @@ async function loadTawk() {
   try {
     const res = await fetch('/tawk-config')
     const cfg = await res.json()
-    if (!cfg?.enabled || !cfg?.propertyId) return
+    if (!cfg?.propertyId) return
     window.Tawk_API = window.Tawk_API || {}
     window.Tawk_LoadStart = new Date()
     const s = document.createElement('script')

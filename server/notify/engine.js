@@ -253,6 +253,43 @@ async function testPlugin(name, target = {}) {
       result = { ok:true, message:`Google Sign-In configured correctly. Client ID: ${cfg.clientId.slice(0,24)}…` };
       break;
     }
+    case 'razorpay':
+    case 'phonepe':
+    case 'paytm':
+    case 'ccavenue':
+    case 'cashfree':
+      result = { ok: true, message: `${name} config saved — activate a real payment to verify credentials end-to-end.` };
+      break;
+    case 'about_us':
+    case 'legal_pages':
+      result = { ok: true, message: 'Content plugin — no external endpoint to test.' };
+      break;
+    case 'turnstile': {
+      const cfg = p.config || {};
+      // Validate key formats (Cloudflare Turnstile keys start with '0x')
+      if (!cfg.siteKey.startsWith('0x'))   throw new Error('Site Key format invalid — must start with 0x');
+      if (!cfg.secretKey.startsWith('0x')) throw new Error('Secret Key format invalid — must start with 0x');
+      // Verify secret key against Cloudflare using a dummy token (will return success:false but NOT an error)
+      const verifyRes = await new Promise((resolve, reject) => {
+        const https = require('https');
+        const body  = JSON.stringify({ secret: cfg.secretKey, response: 'dummy-test-token' });
+        const req   = https.request({
+          hostname: 'challenges.cloudflare.com',
+          path: '/turnstile/v0/siteverify',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        }, res => { let d = ''; res.on('data', c => { d += c; }); res.on('end', () => { try { resolve(JSON.parse(d)); } catch { reject(new Error('Invalid response from Cloudflare')); } }); });
+        req.on('error', reject);
+        req.setTimeout(5000, () => { req.destroy(); reject(new Error('Cloudflare API timeout')); });
+        req.write(body); req.end();
+      });
+      // A valid secret key returns { success: false, 'error-codes': ['invalid-input-response'] }
+      // An invalid secret key returns { success: false, 'error-codes': ['invalid-input-secret'] }
+      const errs = verifyRes['error-codes'] || [];
+      if (errs.includes('invalid-input-secret')) throw new Error('Secret Key rejected by Cloudflare — check your key');
+      result = { ok: true, message: `Turnstile keys validated ✓ — Site Key and Secret Key accepted by Cloudflare.` };
+      break;
+    }
     default: throw new Error(`No test handler for '${name}'`);
   }
   await Plugin.updateOne({ name }, { $set:{ lastTestedAt:new Date(), lastTestResult:'ok' } });

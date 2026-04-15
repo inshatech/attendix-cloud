@@ -2,8 +2,10 @@
 const express  = require('express');
 const router   = express.Router();
 const { v4: uuidv4 } = require('uuid');
+const https    = require('https');
 
-const AuthUser = require('../models/AuthUser');
+const AuthUser  = require('../models/AuthUser');
+const LoginLog  = require('../models/LoginLog');
 const { Plugin } = require('../models/Plugin');
 const { sendOtp } = require('../notify/engine');
 
@@ -53,6 +55,60 @@ async function totpEnforced(role) {
   return (role === 'admin' && c.enforceForAdmins) ||
          (role === 'support' && c.enforceForSupport) ||
          (role === 'user'    && c.enforceForUsers);
+}
+
+// ── IP helpers ────────────────────────────────────────────────────────────────
+function getClientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (fwd) return fwd.split(',')[0].trim();
+  return req.socket?.remoteAddress || req.ip || null;
+}
+
+/** Fire-and-forget login log — never throws */
+async function writeLoginLog(data) {
+  try { await LoginLog.create(data); } catch { /* non-critical */ }
+}
+
+// ── Turnstile verification ────────────────────────────────────────────────────
+let _turnstileCache = null;
+let _turnstileCacheAt = 0;
+async function getTurnstileConfig() {
+  if (_turnstileCache && Date.now() - _turnstileCacheAt < 60_000) return _turnstileCache;
+  const p = await Plugin.findOne({ name: 'turnstile', enabled: true }).lean();
+  _turnstileCache = p?.config?.secretKey ? p.config : null;
+  _turnstileCacheAt = Date.now();
+  return _turnstileCache;
+}
+
+async function verifyTurnstile(token, ip) {
+  const cfg = await getTurnstileConfig();
+  if (!cfg) return true; // plugin disabled — skip verification
+  if (!token) return false;
+  return new Promise(resolve => {
+    const body = JSON.stringify({ secret: cfg.secretKey, response: token, remoteip: ip });
+    const req = https.request({
+      hostname: 'challenges.cloudflare.com',
+      path: '/turnstile/v0/siteverify',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, res => {
+      let data = '';
+      res.on('data', d => { data += d; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data).success === true); }
+        catch { resolve(false); }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(5000, () => { req.destroy(); resolve(false); });
+    req.write(body);
+    req.end();
+  });
+}
+
+/** Check honeypot field — bots fill it, humans leave it empty */
+function isHoneypot(body) {
+  return !!(body._hp || body.website || body.phone_alt);
 }
 
 // ── Trusted device helpers ────────────────────────────────────────────────────
@@ -166,31 +222,57 @@ router.post('/verify-otp', otpVerifyLimiter, async (req, res) => {
 
 // ── PASSWORD LOGIN ────────────────────────────────────────────────────────────
 router.post('/login', loginLimiter, async (req, res) => {
+  const ip = getClientIp(req);
+  const ua = req.headers['user-agent'] || '';
   try {
-    const { mobile, email, password, deviceToken } = req.body;
+    const { mobile, email, password, deviceToken, _turnstile } = req.body;
     if (!password || (!mobile && !email)) return res.status(400).json({ error: 'Provide mobile/email and password' });
+
+    // Honeypot
+    if (isHoneypot(req.body)) {
+      writeLoginLog({ email: email || mobile, ip, isp: null, result: 'blocked', reason: 'honeypot', userAgent: ua });
+      return res.status(400).json({ error: 'Invalid request' });
+    }
+
+    // Turnstile (only if enabled for login page)
+    const tsCfg = await getTurnstileConfig();
+    if (tsCfg?.onLogin) {
+      const ok = await verifyTurnstile(_turnstile, ip);
+      if (!ok) {
+        writeLoginLog({ email: email || mobile, ip, result: 'blocked', reason: 'turnstile', userAgent: ua });
+        return res.status(400).json({ error: 'Security check failed. Please try again.' });
+      }
+    }
+
     const q = mobile ? { mobile: mobile.trim() } : { email: email.trim().toLowerCase() };
     const u = await AuthUser.findOne(q);
-    if (!u || !u.isActive || !u.passwordHash) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!u || !u.isActive || !u.passwordHash) {
+      writeLoginLog({ email: email || mobile, ip, result: 'failed', reason: 'invalid_credentials', userAgent: ua });
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
     if (locked(u)) {
       const mins = Math.ceil((new Date(u.lockedUntil) - Date.now()) / 60000);
+      writeLoginLog({ email: email || mobile, userId: u.userId, ip, result: 'blocked', reason: 'account_locked', userAgent: ua });
       return res.status(423).json({ error: `Account locked. Try again in ${mins} min.` });
     }
     if (!await verifyPassword(password, u.passwordHash)) {
       const n = await failAttempt(u);
+      writeLoginLog({ email: email || mobile, userId: u.userId, ip, result: 'failed', reason: 'wrong_password', userAgent: ua });
       return res.status(401).json({ error: 'Invalid credentials', attemptsRemaining: Math.max(0, MAX_ATTEMPTS - n) });
     }
     if ((u.totpEnabled || await totpEnforced(u.role)) && u.totpSecret) {
       if (isTrustedDevice(u, deviceToken)) {
-        const tokens = await issueTokens(u, req.headers['user-agent']);
-        await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: req.ip } });
+        const tokens = await issueTokens(u, ua);
+        await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: ip } });
+        writeLoginLog({ email: u.email || u.mobile, userId: u.userId, ip, result: 'success', reason: 'trusted_device', userAgent: ua });
         return res.json({ status: 'success', role: u.role, name: u.name, ...tokens });
       }
       return res.json({ status: 'success', requires2FA: true, preAuthToken: await mkPreAuth(u.userId) });
     }
 
-    const tokens = await issueTokens(u, req.headers['user-agent']);
-    await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: req.ip } });
+    const tokens = await issueTokens(u, ua);
+    await AuthUser.updateOne({ userId: u.userId }, { $set: { lastLoginIp: ip } });
+    writeLoginLog({ email: u.email || u.mobile, userId: u.userId, ip, result: 'success', reason: null, userAgent: ua });
     res.json({ status: 'success', role: u.role, name: u.name, ...tokens });
   } catch (e) { console.error('[auth] login:', e.message); res.status(500).json({ error: 'Login failed' }); }
 });
@@ -309,9 +391,21 @@ router.post('/logout-all', requireAuth, async (req, res) => {
 
 // ── FORGOT / RESET PASSWORD ───────────────────────────────────────────────────
 router.post('/forgot-password', otpSendLimiter, async (req, res) => {
+  const ip = getClientIp(req);
+  const ua = req.headers['user-agent'] || '';
   try {
-    const { mobile, email } = req.body;
+    const { mobile, email, _turnstile } = req.body;
     if (!mobile && !email) return res.status(400).json({ error: 'Provide mobile or email' });
+
+    // Honeypot
+    if (isHoneypot(req.body)) return res.status(400).json({ error: 'Invalid request' });
+
+    // Turnstile
+    const tsCfg = await getTurnstileConfig();
+    if (tsCfg?.onForgotPassword !== false) {
+      const ok = await verifyTurnstile(_turnstile, ip);
+      if (!ok) return res.status(400).json({ error: 'Security check failed. Please try again.' });
+    }
     const q = mobile ? { mobile: mobile.trim() } : { email: email.trim().toLowerCase() };
     const u = await AuthUser.findOne(q);
     if (!u || !u.isActive) {
@@ -475,12 +569,24 @@ module.exports = router;
  * Body: { name, email?, mobile?, password }
  */
 router.post('/register', async (req, res) => {
+  const ip = getClientIp(req);
+  const ua = req.headers['user-agent'] || '';
   try {
-    const { name, email, mobile, password } = req.body;
+    const { name, email, mobile, password, _turnstile } = req.body;
     if (!name)     return res.status(400).json({ error: 'name required' });
     if (!email && !mobile) return res.status(400).json({ error: 'email or mobile required' });
     if (!password || password.length < 8)
       return res.status(400).json({ error: 'password required (min 8 characters)' });
+
+    // Honeypot
+    if (isHoneypot(req.body)) return res.status(400).json({ error: 'Invalid request' });
+
+    // Turnstile
+    const tsCfg = await getTurnstileConfig();
+    if (tsCfg?.onRegister !== false) {
+      const ok = await verifyTurnstile(_turnstile, ip);
+      if (!ok) return res.status(400).json({ error: 'Security check failed. Please try again.' });
+    }
 
     const em  = email  ? email.trim().toLowerCase() : null;
     const mob = mobile ? mobile.trim()              : null;

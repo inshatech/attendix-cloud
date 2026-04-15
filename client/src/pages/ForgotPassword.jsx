@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -75,6 +75,11 @@ export default function ForgotPassword() {
   const [showPw2, setShowPw2] = useState(false)
   const [busy, setBusy] = useState(false)
   const [sec,  setSec]  = useState(0)
+  const [hp,      setHp]     = useState('')           // honeypot
+  const [ipInfo,  setIpInfo] = useState(null)
+  const [tsToken, setTsToken] = useState('')
+  const [tsCfg,   setTsCfg]  = useState(null)
+  const tsRef = useRef(null)
   const { toast }             = useToast()
   const { theme, toggle }     = useTheme()
   const { logoUrl, appName, tagline, version, companyName, load } = useBrand()
@@ -88,11 +93,59 @@ export default function ForgotPassword() {
     return () => clearTimeout(t)
   }, [sec])
 
+  // IP info (non-blocking)
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => {
+      fetch('https://ipapi.co/json/', { signal: ctrl.signal })
+        .then(r => r.json())
+        .then(d => { if (d?.ip) setIpInfo({ ip: d.ip, org: d.org || d.isp || '', city: d.city || '', country: d.country_name || '' }) })
+        .catch(() => {})
+    }, 600)
+    return () => { clearTimeout(t); ctrl.abort() }
+  }, [])
+
+  // Turnstile config + widget
+  useEffect(() => {
+    fetch('/turnstile-config').then(r => r.json()).then(cfg => {
+      if (!cfg?.enabled || !cfg?.siteKey || cfg?.onForgotPassword === false) return
+      setTsCfg(cfg)
+      const scriptId = 'cf-turnstile-script'
+      if (!document.getElementById(scriptId)) {
+        const s = document.createElement('script')
+        s.id = scriptId
+        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+        s.async = true
+        document.head.appendChild(s)
+      }
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!tsCfg?.siteKey || !tsRef.current) return
+    let attempts = 0
+    const tryRender = setInterval(() => {
+      attempts++
+      if (window.turnstile && tsRef.current && !tsRef.current.dataset.rendered) {
+        tsRef.current.dataset.rendered = '1'
+        window.turnstile.render(tsRef.current, {
+          sitekey: tsCfg.siteKey,
+          callback: token => setTsToken(token),
+          'expired-callback': () => setTsToken(''),
+          theme: 'auto', size: 'flexible',
+        })
+        clearInterval(tryRender)
+      }
+      if (attempts > 40) clearInterval(tryRender)
+    }, 250)
+    return () => clearInterval(tryRender)
+  }, [tsCfg])
+
   async function sendOtp() {
     if (!id.trim()) return toast('Enter email or mobile', 'error')
     setBusy(true)
     try {
-      await api.post('/auth/forgot-password', parseId(id))
+      await api.post('/auth/forgot-password', { ...parseId(id), _hp: hp, _turnstile: tsToken })
       setStep('verify'); setOtp(''); setSec(60)
     } catch (e) { toast(e.message, 'error') }
     finally { setBusy(false) }
@@ -280,11 +333,14 @@ export default function ForgotPassword() {
                         placeholder="you@company.com or +91 98765 43210"
                         onKeyDown={e => e.key === 'Enter' && sendOtp()}/>
 
-                      <motion.button onClick={sendOtp} disabled={busy || !id.trim()}
+                      {/* Turnstile widget */}
+                      {tsCfg?.siteKey && <div ref={tsRef} />}
+
+                      <motion.button onClick={sendOtp} disabled={busy || !id.trim() || (tsCfg?.siteKey && !tsToken)}
                         whileHover={{ scale: id.trim() && !busy ? 1.015 : 1 }} whileTap={{ scale: .975 }}
                         style={{ width: '100%', padding: '13px', borderRadius: 12, border: 'none',
-                          fontWeight: 800, fontSize: '0.9375rem', cursor: busy || !id.trim() ? 'not-allowed' : 'pointer',
-                          opacity: !id.trim() || busy ? .5 : 1,
+                          fontWeight: 800, fontSize: '0.9375rem', cursor: (busy || !id.trim() || (tsCfg?.siteKey && !tsToken)) ? 'not-allowed' : 'pointer',
+                          opacity: (!id.trim() || busy || (tsCfg?.siteKey && !tsToken)) ? .5 : 1,
                           background: id.trim() ? 'var(--accent)' : 'var(--bg-surface2)',
                           color: id.trim() ? '#fff' : 'var(--text-dim)',
                           boxShadow: id.trim() ? '0 6px 20px var(--accent-muted)' : 'none',
@@ -294,6 +350,25 @@ export default function ForgotPassword() {
                               style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff' }}/> Sending…</>
                           : <>Send Reset Code <ArrowRight size={16}/></>}
                       </motion.button>
+
+                      {/* IP info */}
+                      {ipInfo && (
+                        <div style={{
+                          padding: '9px 13px', borderRadius: 10,
+                          background: 'rgba(88,166,255,.06)', border: '1px solid rgba(88,166,255,.15)',
+                          fontSize: '0.73rem', color: 'var(--text-muted)', lineHeight: 1.5, textAlign: 'center',
+                        }}>
+                          Connecting from{' '}
+                          <strong style={{ color: 'var(--text-secondary)' }}>{ipInfo.org || ipInfo.city}</strong>
+                          {ipInfo.country ? `, ${ipInfo.country}` : ''}{' '}·{' '}
+                          <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{ipInfo.ip}</strong>
+                        </div>
+                      )}
+
+                      {/* Honeypot */}
+                      <input type="text" name="_hp" value={hp} onChange={e => setHp(e.target.value)}
+                        tabIndex={-1} autoComplete="off" aria-hidden="true"
+                        style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }} />
                     </div>
                   </motion.div>
                 )}

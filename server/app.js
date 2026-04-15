@@ -205,6 +205,23 @@ app.get('/api/legal/:slug', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── TURNSTILE CONFIG (public — serves siteKey + enabled flags to frontend) ───
+app.get('/turnstile-config', async (req, res) => {
+  try {
+    const { Plugin } = require('./models/Plugin');
+    const p = await Plugin.findOne({ name: 'turnstile', enabled: true }).lean();
+    if (!p || !p.config?.siteKey)
+      return res.json({ enabled: false });
+    res.json({
+      enabled:           true,
+      siteKey:           p.config.siteKey,
+      onLogin:           !!p.config.onLogin,
+      onRegister:        p.config.onRegister !== false,
+      onForgotPassword:  p.config.onForgotPassword !== false,
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── TAWK CONFIG (public — serves Tawk.to credentials to frontend) ─────────────
 app.get('/tawk-config', async (req, res) => {
   try {
@@ -1113,7 +1130,7 @@ app.get('/admin/chat/stream', requireAuth, requireRole('admin','support'), (req,
 });
 
 // ── SPA FALLBACK / 404 ────────────────────────────────────────────────────────
-const API_PREFIXES = ['/api/','/auth/','/admin/','/user/','/organizations/','/subscriptions/','/tawk-config','/chat/','/tickets/','/webhooks/','/bridge-app/','/machine-users/','/health','/bridge'];
+const API_PREFIXES = ['/api/','/auth/','/admin/','/user/','/organizations/','/subscriptions/','/tawk-config','/turnstile-config','/chat/','/tickets/','/webhooks/','/bridge-app/','/machine-users/','/health','/bridge'];
 app.use((req, res) => {
   if (API_PREFIXES.some(p => req.path === p || req.path.startsWith(p))) {
     return res.status(404).json({ error: `Not found: ${req.method} ${req.path}` });

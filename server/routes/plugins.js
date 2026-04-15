@@ -312,6 +312,10 @@ function getMissingFields(name, cfg) {
       if (!cfg.propertyId) missing.push('propertyId');
       if (!cfg.widgetId)   missing.push('widgetId');
       break;
+    case 'turnstile':
+      if (!cfg.siteKey)   missing.push('siteKey');
+      if (!cfg.secretKey) missing.push('secretKey');
+      break;
   }
   return missing;
 }

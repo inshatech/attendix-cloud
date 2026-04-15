@@ -236,8 +236,13 @@ export default function Login() {
   const [activeF, setActiveF] = useState(0)
   const [googleEnabled, setGoogleEnabled] = useState(false)
   const [googleClientId, setGoogleClientId] = useState('')
-  const idRef = useRef(null)
-  const pwRef = useRef(null)
+  const [ipInfo, setIpInfo] = useState(null)
+  const [hp, setHp] = useState('')           // honeypot — must stay empty
+  const [tsToken, setTsToken] = useState('')
+  const [tsCfg,   setTsCfg]  = useState(null)
+  const tsRef  = useRef(null)
+  const idRef  = useRef(null)
+  const pwRef  = useRef(null)
 
   const { setUser } = useAuth()
   const { toast } = useToast()
@@ -248,6 +253,56 @@ export default function Login() {
   useEffect(() => {
     api.get('/auth/google/status').then(r => { setGoogleEnabled(r.enabled); if (r.clientId) setGoogleClientId(r.clientId) }).catch(() => { })
   }, [])
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => {
+      fetch('https://ipapi.co/json/', { signal: ctrl.signal })
+        .then(r => r.json())
+        .then(d => { if (d?.ip) setIpInfo({ ip: d.ip, org: d.org || d.isp || '', city: d.city || '', country: d.country_name || '' }) })
+        .catch(() => {})
+    }, 600)
+    return () => { clearTimeout(t); ctrl.abort() }
+  }, [])
+
+  // Turnstile config + widget (login page)
+  useEffect(() => {
+    fetch('/turnstile-config').then(r => r.json()).then(cfg => {
+      if (!cfg?.enabled || !cfg?.siteKey || !cfg?.onLogin) return
+      setTsCfg(cfg)
+      const scriptId = 'cf-turnstile-script'
+      if (!document.getElementById(scriptId)) {
+        const s = document.createElement('script')
+        s.id = scriptId
+        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+        s.async = true
+        document.head.appendChild(s)
+      }
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!tsCfg?.siteKey || tab !== 'password') return
+    // Reset so widget can re-render after tab switch
+    if (tsRef.current) delete tsRef.current.dataset.rendered
+    setTsToken('')
+    let attempts = 0
+    const tryRender = setInterval(() => {
+      attempts++
+      if (window.turnstile && tsRef.current && !tsRef.current.dataset.rendered) {
+        tsRef.current.dataset.rendered = '1'
+        window.turnstile.render(tsRef.current, {
+          sitekey: tsCfg.siteKey,
+          callback: token => setTsToken(token),
+          'expired-callback': () => setTsToken(''),
+          theme: 'auto', size: 'flexible',
+        })
+        clearInterval(tryRender)
+      }
+      if (attempts > 40) clearInterval(tryRender)
+    }, 250)
+    return () => clearInterval(tryRender)
+  }, [tsCfg, tab])
 
   useEffect(() => {
     const t = setInterval(() => setActiveF(a => (a + 1) % FEATURES.length), 3200)
@@ -298,7 +353,7 @@ export default function Login() {
     setBusy(true)
     try {
       const deviceToken = localStorage.getItem('tfa_dt') || undefined
-      const r = await api.post('/auth/login', { ...parseId(id), password: pw, deviceToken })
+      const r = await api.post('/auth/login', { ...parseId(id), password: pw, deviceToken, _hp: hp, _turnstile: tsToken })
       if (r.requires2FA) { setPre(r.preAuthToken); setShow2FA(true); return }
       after(r)
     } catch (e) { toast(e.message, 'error') }
@@ -609,13 +664,16 @@ export default function Login() {
                     Forgot password?
                   </Link>
                 </div>
-                <motion.button type="button" onClick={doPassword} disabled={busy || !id.trim() || !pw}
+                {/* Turnstile widget (login) */}
+                {tsCfg?.siteKey && <div ref={tsRef} style={{ marginBottom: 4 }} />}
+
+                <motion.button type="button" onClick={doPassword} disabled={busy || !id.trim() || !pw || (tsCfg?.siteKey && !tsToken)}
                   whileHover={{ scale: id.trim() && pw && !busy ? 1.015 : 1 }}
                   style={{
                     width: '100%', padding: '13px', borderRadius: 11, border: 'none',
                     fontWeight: 800, fontSize: '0.9375rem', transition: 'all .2s',
-                    cursor: id.trim() && pw && !busy ? 'pointer' : 'not-allowed',
-                    opacity: id.trim() && pw ? 1 : 0.45,
+                    cursor: (id.trim() && pw && !busy && !(tsCfg?.siteKey && !tsToken)) ? 'pointer' : 'not-allowed',
+                    opacity: (id.trim() && pw && !(tsCfg?.siteKey && !tsToken)) ? 1 : 0.45,
                     background: id.trim() && pw ? 'var(--accent)' : 'var(--bg-surface2)',
                     color: id.trim() && pw ? '#fff' : 'var(--text-dim)',
                     boxShadow: id.trim() && pw ? '0 6px 20px var(--accent-muted)' : 'none',
@@ -637,6 +695,29 @@ export default function Login() {
               Start free trial →
             </Link>
           </p>
+
+          {/* IP info banner */}
+          {ipInfo && (
+            <div style={{
+              marginTop: 16, padding: '10px 14px', borderRadius: 10,
+              background: 'rgba(88,166,255,.06)', border: '1px solid rgba(88,166,255,.15)',
+              fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, textAlign: 'center',
+            }}>
+              You are connecting from{' '}
+              <strong style={{ color: 'var(--text-secondary)' }}>{ipInfo.org || ipInfo.city}</strong>
+              {ipInfo.city && ipInfo.org ? `, ${ipInfo.city}` : ''}
+              {ipInfo.country ? ` — ${ipInfo.country}` : ''}{' '}
+              with IP address{' '}
+              <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{ipInfo.ip}</strong>
+            </div>
+          )}
+
+          {/* Honeypot — hidden from humans, bots fill it */}
+          <input
+            type="text" name="_hp" value={hp} onChange={e => setHp(e.target.value)}
+            tabIndex={-1} autoComplete="off" aria-hidden="true"
+            style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }}
+          />
         </div>
 
         {/* <p style={{ position: 'absolute', bottom: 14, fontSize: '0.7rem', color: 'var(--text-dim)', fontFamily: 'monospace', zIndex: 1, textAlign: 'center' }}>

@@ -44,6 +44,11 @@ const PERKS = [
 export default function Register() {
   const [f, setF] = useState({ name: '', email: '', mobile: '', password: '', confirm: '' })
   const [busy, setBusy] = useState(false)
+  const [hp, setHp] = useState('')           // honeypot
+  const [ipInfo, setIpInfo] = useState(null)
+  const [tsToken, setTsToken] = useState('')  // Turnstile token
+  const [tsCfg, setTsCfg]   = useState(null)  // { siteKey, onRegister }
+  const tsRef = useRef(null)
   const { setUser } = useAuth()
   const { toast } = useToast()
   const { theme, toggle } = useTheme()
@@ -56,6 +61,56 @@ export default function Register() {
   useEffect(() => { load() }, [])
   const ver = version || (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0')
 
+  // IP info (non-blocking)
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => {
+      fetch('https://ipapi.co/json/', { signal: ctrl.signal })
+        .then(r => r.json())
+        .then(d => { if (d?.ip) setIpInfo({ ip: d.ip, org: d.org || d.isp || '', city: d.city || '', country: d.country_name || '' }) })
+        .catch(() => {})
+    }, 600)
+    return () => { clearTimeout(t); ctrl.abort() }
+  }, [])
+
+  // Turnstile config + widget bootstrap
+  useEffect(() => {
+    fetch('/turnstile-config').then(r => r.json()).then(cfg => {
+      if (!cfg?.enabled || !cfg?.siteKey || cfg?.onRegister === false) return
+      setTsCfg(cfg)
+      const scriptId = 'cf-turnstile-script'
+      if (!document.getElementById(scriptId)) {
+        const s = document.createElement('script')
+        s.id = scriptId
+        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+        s.async = true
+        document.head.appendChild(s)
+      }
+    }).catch(() => {})
+  }, [])
+
+  // Render Turnstile widget once script + container are ready
+  useEffect(() => {
+    if (!tsCfg?.siteKey || !tsRef.current) return
+    let attempts = 0
+    const tryRender = setInterval(() => {
+      attempts++
+      if (window.turnstile && tsRef.current && !tsRef.current.dataset.rendered) {
+        tsRef.current.dataset.rendered = '1'
+        window.turnstile.render(tsRef.current, {
+          sitekey: tsCfg.siteKey,
+          callback: token => setTsToken(token),
+          'expired-callback': () => setTsToken(''),
+          theme: 'auto',
+          size: 'flexible',
+        })
+        clearInterval(tryRender)
+      }
+      if (attempts > 40) clearInterval(tryRender)
+    }, 250)
+    return () => clearInterval(tryRender)
+  }, [tsCfg])
+
   async function submit() {
     if (!f.name) return toast('Full name is required', 'error')
     if (!f.email) return toast('Email is required', 'error')
@@ -63,7 +118,7 @@ export default function Register() {
     if (f.password !== f.confirm) return toast('Passwords do not match', 'error')
     setBusy(true)
     try {
-      const body = { name: f.name, email: f.email, password: f.password }
+      const body = { name: f.name, email: f.email, password: f.password, _hp: hp, _turnstile: tsToken }
       if (f.mobile) body.mobile = f.mobile
       const r = await api.post('/auth/register', body)
       setUser({ name: r.name, role: r.role }, r.accessToken, r.refreshToken)
@@ -285,22 +340,48 @@ export default function Register() {
             </div>
             <Input label="Confirm Password" icon={Lock} type="password" value={f.confirm} onChange={set('confirm')} placeholder="repeat password" autoComplete="new-password" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit() } }} />
 
-            <motion.button type="button" onClick={submit} disabled={busy}
+            {/* Turnstile widget */}
+            {tsCfg?.siteKey && (
+              <div ref={tsRef} style={{ marginTop: 4 }} />
+            )}
+
+            <motion.button type="button" onClick={submit} disabled={busy || (tsCfg?.siteKey && !tsToken)}
               whileHover={{ scale: 1.015 }} whileTap={{ scale: .975 }}
               style={{
                 width: '100%', padding: '13px', borderRadius: 11, border: 'none',
-                fontWeight: 800, fontSize: '0.9375rem', cursor: busy ? 'not-allowed' : 'pointer',
+                fontWeight: 800, fontSize: '0.9375rem', cursor: (busy || (tsCfg?.siteKey && !tsToken)) ? 'not-allowed' : 'pointer',
                 background: 'var(--accent)', color: '#fff',
                 boxShadow: '0 6px 20px var(--accent-muted)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                opacity: busy ? .7 : 1, marginTop: 2, transition: 'opacity .2s'
+                opacity: (busy || (tsCfg?.siteKey && !tsToken)) ? .6 : 1, marginTop: 2, transition: 'opacity .2s'
               }}>
               {busy
                 ? <><motion.div animate={{ rotate: 360 }} transition={{ duration: .8, repeat: Infinity, ease: 'linear' }}
                   style={{ width: 17, height: 17, borderRadius: '50%', border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff' }} /> Creating…</>
                 : <>Create Account & Start Trial <ArrowRight size={16} /></>}
             </motion.button>
+
+            {/* Honeypot */}
+            <input type="text" name="_hp" value={hp} onChange={e => setHp(e.target.value)}
+              tabIndex={-1} autoComplete="off" aria-hidden="true"
+              style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }} />
           </div>
+
+          {/* IP info banner */}
+          {ipInfo && (
+            <div style={{
+              marginTop: 12, padding: '10px 14px', borderRadius: 10,
+              background: 'rgba(88,166,255,.06)', border: '1px solid rgba(88,166,255,.15)',
+              fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, textAlign: 'center',
+            }}>
+              You are connecting from{' '}
+              <strong style={{ color: 'var(--text-secondary)' }}>{ipInfo.org || ipInfo.city}</strong>
+              {ipInfo.city && ipInfo.org ? `, ${ipInfo.city}` : ''}
+              {ipInfo.country ? ` — ${ipInfo.country}` : ''}{' '}
+              with IP address{' '}
+              <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{ipInfo.ip}</strong>
+            </div>
+          )}
 
           <p style={{ marginTop: 16, textAlign: 'center', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
             Already have an account?{' '}
