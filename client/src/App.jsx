@@ -9,6 +9,7 @@ import { Spinner } from './components/ui/Spinner'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import ForgotPassword from './pages/ForgotPassword'
+import PolicyPage from './pages/PolicyPage'
 import Dashboard from './pages/Dashboard'
 import Organizations from './pages/Organizations'
 import Subscription from './pages/Subscription'
@@ -95,6 +96,7 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
       <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+      <Route path="/policies/:slug" element={<PolicyPage />} />
 
       {/* User workspace */}
       <Route path="/dashboard" element={<AuthGuard><Dashboard /></AuthGuard>} />

@@ -173,6 +173,21 @@ function Footer({ user, logout, roleLabel, accent }) {
             </Link>
           </p>
         </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 6 }}>
+          {[
+            { to: '/policies/privacy-policy',   label: 'Privacy' },
+            { to: '/policies/terms-of-service', label: 'Terms'   },
+            { to: '/policies/refund-policy',    label: 'Refund'  },
+            { to: '/policies/report-abuse',     label: 'Abuse'   },
+          ].map(l => (
+            <Link key={l.to} to={l.to} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textDecoration: 'none' }}
+              onMouseEnter={e => e.target.style.color = 'var(--text-muted)'}
+              onMouseLeave={e => e.target.style.color = 'var(--text-dim)'}>
+              {l.label}
+            </Link>
+          ))}
+        </div>
       </>
     </div>
   )

@@ -180,6 +180,31 @@ app.get('/api/about', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── LEGAL PAGES (public — serves policy content to frontend) ─────────────────
+const LEGAL_SLUG_MAP = {
+  'privacy-policy':   'privacy_policy',
+  'terms-of-service': 'terms_of_service',
+  'refund-policy':    'refund_policy',
+  'report-abuse':     'report_abuse',
+};
+app.get('/api/legal/:slug', async (req, res) => {
+  try {
+    const key = LEGAL_SLUG_MAP[req.params.slug];
+    if (!key) return res.status(404).json({ error: 'Page not found' });
+    const { Plugin, PLUGIN_DEFAULTS } = require('./models/Plugin');
+    const p = await Plugin.findOne({ name: 'legal_pages' }).lean();
+    const page = { ...(p?.config?.[key] || {}) };
+    // Fall back to built-in defaults when DB record has no content yet
+    if (!page.content) {
+      const def = PLUGIN_DEFAULTS?.legal_pages?.[key] || {};
+      page.title       = page.title       || def.title       || '';
+      page.content     = def.content      || '';
+      page.lastUpdated = page.lastUpdated || def.lastUpdated || '';
+    }
+    res.json({ status: 'success', data: page });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── TAWK CONFIG (public — serves Tawk.to credentials to frontend) ─────────────
 app.get('/tawk-config', async (req, res) => {
   try {

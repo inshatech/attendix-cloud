@@ -308,15 +308,25 @@ export default function Register() {
           </p>
         </motion.div>
 
-        <div style={{ position: 'absolute', bottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>© {new Date().getFullYear()} {useBrand.getState().appName} | </p>
-          <Heart size={10} style={{ color: '#58a6ff', fill: '#58a6ff' }} />
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-            Powered by: {' '}
-            <Link to="https://www.inshatech.com" style={{ color: 'var(--text-primary)' }} target="_blank" rel="noopener noreferrer">
-              <strong style={{ color: 'var(--text-secondary)' }}>{useBrand.getState().companyName || 'Insha Technologies'}</strong>
-            </Link>
-          </p>
+        <div style={{ position: 'absolute', bottom: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', margin: 0 }}>© {new Date().getFullYear()} {useBrand.getState().appName} | </p>
+            <Heart size={10} style={{ color: '#58a6ff', fill: '#58a6ff' }} />
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', margin: 0 }}>
+              Powered by: {' '}
+              <Link to="https://www.inshatech.com" style={{ color: 'var(--text-primary)' }} target="_blank" rel="noopener noreferrer">
+                <strong style={{ color: 'var(--text-secondary)' }}>{useBrand.getState().companyName || 'Insha Technologies'}</strong>
+              </Link>
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {[['privacy-policy','Privacy Policy'],['terms-of-service','Terms'],['refund-policy','Refund'],['report-abuse','Report Abuse']].map(([slug,label]) => (
+              <Link key={slug} to={`/policies/${slug}`} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textDecoration: 'none' }}>
+                {label}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
     </div>

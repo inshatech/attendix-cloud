@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plug, Smartphone, MessageSquare, MessageCircle, Mail, Shield, Image, Globe2, Wifi, ChevronDown, ChevronUp, TestTube, CheckCircle2, RefreshCw, XCircle, AlertTriangle, CreditCard, Zap, Info, Plus, Trash2, Building2, Users, Star, Phone, MapPin, Link, Upload, FileUp, HardDrive } from 'lucide-react'
+import { Plug, Smartphone, MessageSquare, MessageCircle, Mail, Shield, Image, Globe2, Wifi, ChevronDown, ChevronUp, TestTube, CheckCircle2, RefreshCw, XCircle, AlertTriangle, CreditCard, Zap, Info, Plus, Trash2, Building2, Users, Star, Phone, MapPin, Link, Upload, FileUp, HardDrive, Scale, ExternalLink } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { AdminPage, PageHeader, StatCard, SearchBox } from '../../components/admin/AdminUI'
 import { Input } from '../../components/ui/Input'
@@ -19,6 +21,7 @@ const META = {
   smtp:            { icon: Mail,          label: 'Email (SMTP)',    color: '#fb923c', desc: 'Nodemailer SMTP — Gmail shortcut or any provider.' },
   totp_2fa:        { icon: Shield,        label: 'Two-Factor Auth', color: '#c084fc', desc: 'Google Authenticator TOTP. Enforce per role.' },
   about_us:    { icon: Info,   label: 'About Us Page',       color:'#f472b6', desc:'Configure public About page — app info, company, mission, features, team & contact.' },
+  legal_pages: { icon: Scale, label: 'Legal Pages',          color:'#a78bfa', desc:'Privacy Policy, Terms of Service, Refund Policy and Report Abuse pages at /policies/*.' },
   // Live Chat
   bridge_app:  { icon: Wifi,   label: 'Bridge App Settings', color:'#58a6ff', desc:'Windows desktop bridge — download link, version, file size, and server credentials shown to users on the Bridge Setup page.' },
   google_auth: { icon: Globe2, label: 'Google Sign-In', color:'#4285f4', desc:'Allow users to sign in with their Google account via OAuth 2.0.' },
@@ -540,6 +543,219 @@ function AboutPluginCard({ plugin, onRefresh }) {
   )
 }
 
+// ── Rich Text Editor (TipTap) ─────────────────────────────────────────────────
+function ToolBtn({ onClick, active, title, children }) {
+  return (
+    <button type="button" title={title} onClick={onClick} style={{
+      padding: '4px 8px', border: 'none', cursor: 'pointer', borderRadius: 6,
+      background: active ? 'rgba(88,166,255,.18)' : 'transparent',
+      color: active ? '#58a6ff' : 'var(--text-muted)',
+      fontSize: '0.8125rem', fontWeight: 600, lineHeight: 1, transition: 'all .12s',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 28,
+    }}
+    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-surface2)' }}
+    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}>
+      {children}
+    </button>
+  )
+}
+
+function RichEditor({ content, onChange }) {
+  const editor = useEditor({
+    extensions: [StarterKit],
+    content: content || '',
+    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+  })
+
+  // Sync content when tab changes (key prop on parent handles remount)
+  useEffect(() => {
+    if (editor && content !== undefined && editor.getHTML() !== content) {
+      editor.commands.setContent(content || '', false)
+    }
+  }, [content])
+
+  if (!editor) return null
+
+  const sep = <div style={{ width: 1, background: 'var(--border-soft)', margin: '0 2px', alignSelf: 'stretch' }}/>
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 9, background: 'var(--bg-input)', overflow: 'hidden' }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 1, padding: '5px 8px', borderBottom: '1px solid var(--border-soft)', flexWrap: 'wrap', background: 'var(--bg-surface)' }}>
+        <ToolBtn title="Heading 1" active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</ToolBtn>
+        <ToolBtn title="Heading 2" active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</ToolBtn>
+        <ToolBtn title="Heading 3" active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</ToolBtn>
+        {sep}
+        <ToolBtn title="Bold"   active={editor.isActive('bold')}   onClick={() => editor.chain().focus().toggleBold().run()}><strong>B</strong></ToolBtn>
+        <ToolBtn title="Italic" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></ToolBtn>
+        {sep}
+        <ToolBtn title="Bullet list"  active={editor.isActive('bulletList')}  onClick={() => editor.chain().focus().toggleBulletList().run()}>• List</ToolBtn>
+        <ToolBtn title="Ordered list" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1. List</ToolBtn>
+        {sep}
+        <ToolBtn title="Blockquote" active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}>" Quote</ToolBtn>
+        <ToolBtn title="Divider"    active={false}                          onClick={() => editor.chain().focus().setHorizontalRule().run()}>― HR</ToolBtn>
+        {sep}
+        <ToolBtn title="Undo" active={false} onClick={() => editor.chain().focus().undo().run()}>↩</ToolBtn>
+        <ToolBtn title="Redo" active={false} onClick={() => editor.chain().focus().redo().run()}>↪</ToolBtn>
+      </div>
+      <EditorContent editor={editor} />
+    </div>
+  )
+}
+
+// ── Legal Pages editor ────────────────────────────────────────────────────────
+const LEGAL_TABS = [
+  { key: 'privacy_policy',   label: 'Privacy Policy',   slug: 'privacy-policy',   icon: '🔒' },
+  { key: 'terms_of_service', label: 'Terms of Service', slug: 'terms-of-service', icon: '📄' },
+  { key: 'refund_policy',    label: 'Refund Policy',    slug: 'refund-policy',    icon: '💳' },
+  { key: 'report_abuse',     label: 'Report Abuse',     slug: 'report-abuse',     icon: '🚨' },
+]
+
+function LegalPagesPluginCard({ plugin, onRefresh }) {
+  const { toast } = useToast()
+  const cfg = plugin?.config || {}
+  const [activeTab, setActiveTab] = useState('privacy_policy')
+  const [toggling, setToggling]   = useState(false)
+  const [saving,   setSaving]     = useState(false)
+  const [pages, setPages] = useState(() => {
+    const result = {}
+    for (const t of LEGAL_TABS) {
+      result[t.key] = {
+        title:       cfg[t.key]?.title       || t.label,
+        content:     cfg[t.key]?.content     || '',
+        lastUpdated: cfg[t.key]?.lastUpdated || '',
+      }
+    }
+    return result
+  })
+
+  function setField(key, field, value) {
+    setPages(p => ({ ...p, [key]: { ...p[key], [field]: value } }))
+  }
+
+  async function toggle() {
+    setToggling(true)
+    try {
+      await api.patch(`/admin/plugins/legal_pages/toggle`, { enabled: !plugin.enabled })
+      toast(`Legal Pages ${plugin.enabled ? 'disabled' : 'enabled'}`, 'success')
+      onRefresh()
+    } catch(e) { toast(e.message, 'error') }
+    finally { setToggling(false) }
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      const now = new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'long', year:'numeric' })
+      const payload = {}
+      for (const t of LEGAL_TABS) {
+        payload[t.key] = {
+          ...pages[t.key],
+          lastUpdated: pages[t.key].lastUpdated || now,
+        }
+      }
+      await api.patch(`/admin/plugins/legal_pages/config`, payload)
+      toast('Legal pages saved', 'success')
+      onRefresh()
+    } catch(e) { toast(e.message, 'error') }
+    finally { setSaving(false) }
+  }
+
+  const cur = pages[activeTab]
+  const curMeta = LEGAL_TABS.find(t => t.key === activeTab)
+
+  return (
+    <motion.div layout style={{
+      background: 'var(--bg-surface)', borderRadius: 16, overflow: 'hidden',
+      border: '1px solid rgba(167,139,250,.25)', boxShadow: '0 4px 20px rgba(0,0,0,.25)',
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'center', gap: 14,
+        background: 'linear-gradient(135deg,rgba(167,139,250,.07),rgba(88,166,255,.04))',
+      }}>
+        <div style={{ width:44, height:44, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center',
+          background:'rgba(167,139,250,.12)', border:'1px solid rgba(167,139,250,.25)', flexShrink:0 }}>
+          <Scale size={20} style={{ color:'#a78bfa' }}/>
+        </div>
+        <div style={{ flex:1 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
+            <span style={{ fontSize:'1rem', fontWeight:700, color:'var(--text-primary)' }}>Legal Pages</span>
+            {plugin.enabled
+              ? <span style={{ fontSize:'0.72rem', padding:'2px 9px', borderRadius:99, background:'rgba(52,211,153,.1)', color:'#34d399', border:'1px solid rgba(52,211,153,.2)', fontWeight:600 }}>Active</span>
+              : <span style={{ fontSize:'0.72rem', padding:'2px 9px', borderRadius:99, background:'var(--bg-surface2)', color:'var(--text-muted)', border:'1px solid rgba(255,255,255,.08)' }}>Disabled</span>}
+          </div>
+          <p style={{ margin:0, fontSize:'0.8rem', color:'var(--text-muted)' }}>Privacy Policy · Terms of Service · Refund Policy · Report Abuse</p>
+        </div>
+        <ToggleSwitch checked={plugin.enabled} onChange={toggle} disabled={toggling}/>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:0, borderBottom:'1px solid var(--border-soft)', overflowX:'auto' }}>
+        {LEGAL_TABS.map(t => (
+          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+            padding:'10px 18px', background:'transparent', border:'none', cursor:'pointer',
+            fontSize:'0.8125rem', fontWeight: activeTab === t.key ? 700 : 500,
+            color: activeTab === t.key ? '#a78bfa' : 'var(--text-muted)',
+            borderBottom: `2px solid ${activeTab === t.key ? '#a78bfa' : 'transparent'}`,
+            whiteSpace:'nowrap', transition:'all .15s',
+          }}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab body */}
+      <div style={{ padding:'1.5rem' }}>
+        {/* Public URL chip */}
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16 }}>
+          <a href={`/policies/${curMeta.slug}`} target="_blank" rel="noopener noreferrer"
+            style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:'0.75rem', fontFamily:'monospace',
+              color:'#a78bfa', background:'rgba(167,139,250,.1)', border:'1px solid rgba(167,139,250,.25)',
+              borderRadius:8, padding:'4px 10px', textDecoration:'none' }}>
+            <ExternalLink size={11}/> /policies/{curMeta.slug}
+          </a>
+          <span style={{ fontSize:'0.72rem', color:'var(--text-dim)' }}>Public URL</span>
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          {/* Title */}
+          <div>
+            <p style={{ margin:'0 0 6px', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)' }}>Page Title</p>
+            <input value={cur.title} onChange={e => setField(activeTab,'title',e.target.value)}
+              placeholder={curMeta.label}
+              style={{ width:'100%', padding:'9px 12px', borderRadius:9, background:'var(--bg-input)',
+                border:'1px solid var(--border)', color:'var(--text-primary)', fontSize:'0.875rem', boxSizing:'border-box' }}/>
+          </div>
+
+          {/* Content — rich text editor */}
+          <div>
+            <p style={{ margin:'0 0 6px', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)' }}>Content</p>
+            <RichEditor key={activeTab} content={cur.content} onChange={v => setField(activeTab, 'content', v)} />
+          </div>
+
+          {/* Last updated */}
+          <div>
+            <p style={{ margin:'0 0 6px', fontSize:'0.8125rem', fontWeight:600, color:'var(--text-secondary)' }}>Last Updated Date <span style={{ fontWeight:400, color:'var(--text-dim)' }}>(shown on page — auto-set on save if blank)</span></p>
+            <input value={cur.lastUpdated} onChange={e => setField(activeTab,'lastUpdated',e.target.value)}
+              placeholder="e.g. 15 April 2026"
+              style={{ width:'100%', maxWidth:280, padding:'9px 12px', borderRadius:9, background:'var(--bg-input)',
+                border:'1px solid var(--border)', color:'var(--text-primary)', fontSize:'0.875rem', boxSizing:'border-box' }}/>
+          </div>
+        </div>
+
+        <div style={{ display:'flex', gap:10, marginTop:20, alignItems:'center' }}>
+          <Button size="sm" onClick={save} loading={saving}>Save All Pages</Button>
+          <a href={`/policies/${curMeta.slug}`} target="_blank" rel="noopener noreferrer"
+            style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:'0.8125rem', color:'var(--text-muted)', textDecoration:'none' }}>
+            <ExternalLink size={13}/> Preview
+          </a>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
 function PluginCard({ plugin, onRefresh }) {
   const [open,     setOpen]     = useState(false)
   const [form,     setForm]     = useState({})
@@ -793,11 +1009,13 @@ export default function AdminPlugins() {
   const AUTH_GWS     = ['google_auth']
   const CHAT_GWS     = ['tawk']
   const ABOUT_GWS    = ['about_us']
+  const LEGAL_GWS    = ['legal_pages']
   const enabled      = plugins.filter(p => p.enabled).length
   const tested       = plugins.filter(p => p.lastTestResult === 'ok').length
   const activeGW     = plugins.filter(p => PAYMENT_GWS.includes(p.name) && p.enabled).length
   const aboutPlugin  = plugins.find(p => p.name === 'about_us')
-  const integrations = plugins.filter(p => !PAYMENT_GWS.includes(p.name) && !CHAT_GWS.includes(p.name) && !AUTH_GWS.includes(p.name) && !BRIDGE_GWS.includes(p.name) && !ABOUT_GWS.includes(p.name))
+  const legalPlugin  = plugins.find(p => p.name === 'legal_pages')
+  const integrations = plugins.filter(p => !PAYMENT_GWS.includes(p.name) && !CHAT_GWS.includes(p.name) && !AUTH_GWS.includes(p.name) && !BRIDGE_GWS.includes(p.name) && !ABOUT_GWS.includes(p.name) && !LEGAL_GWS.includes(p.name))
   const gateways     = plugins.filter(p => PAYMENT_GWS.includes(p.name))
   const authPlugins  = plugins.filter(p => AUTH_GWS.includes(p.name))
   const bridgePlugins = plugins.filter(p => BRIDGE_GWS.includes(p.name))
@@ -864,6 +1082,13 @@ export default function AdminPlugins() {
           <div>
             <p style={{ fontSize:'0.8125rem', fontWeight:700, color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12 }}>About Us Page</p>
             <AboutPluginCard plugin={aboutPlugin} onRefresh={load}/>
+          </div>
+        )}
+        {/* Legal Pages */}
+        {legalPlugin && (
+          <div>
+            <p style={{ fontSize:'0.8125rem', fontWeight:700, color:'var(--text-dim)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:12 }}>Legal Pages</p>
+            <LegalPagesPluginCard plugin={legalPlugin} onRefresh={load}/>
           </div>
         )}
         {/* Payment Gateways */}
