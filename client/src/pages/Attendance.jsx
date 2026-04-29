@@ -53,6 +53,7 @@ const STATUS_CFG = {
   'sick-leave':{ label:'Sick Leave', short:'SL',  desc:'Medical / sick leave',                  accent:'#c084fc', bg:'rgba(192,132,252,.1)', border:'rgba(192,132,252,.25)' },
   'comp-off':  { label:'Comp Off',   short:'CO',  desc:'Compensatory off for extra day worked', accent:'#22d3ee', bg:'rgba(34,211,238,.1)',  border:'rgba(34,211,238,.25)'  },
   holiday:     { label:'Holiday',    short:'Hol', desc:'Public / organisation holiday',         accent:'#f472b6', bg:'rgba(244,114,182,.1)', border:'rgba(244,114,182,.25)' },
+  'on-duty':   { label:'On Duty',    short:'OD',  desc:'Employee on duty (field / outstation)',  accent:'#818cf8', bg:'rgba(129,140,248,.1)', border:'rgba(129,140,248,.25)' },
 }
 
 // Range report column definitions with full labels for tooltip
@@ -66,7 +67,7 @@ const RANGE_COLS = [
 ]
 
 const MANUAL_STATUSES = [
-  'present','late','half-day','absent',
+  'present','on-duty','late','half-day','absent',
   'on-leave','paid-leave','sick-leave','comp-off','holiday','week-off',
 ]
 
@@ -766,7 +767,7 @@ function ManualModal({ open, onClose, initial, orgId, employees, onSaved }) {
         </div>
 
         {/* ── Date section ── */}
-        <div style={{ background:'var(--bg-surface2)', borderRadius:12, border:'1px solid var(--border)', overflow:'hidden' }}>
+        <div style={{ background:'var(--bg-surface2)', borderRadius:12, border:'1px solid var(--border)' }}>
           {/* Mode tabs — hidden in edit mode */}
           {!isEdit && (
             <div style={{ display:'flex', borderBottom:'1px solid var(--border)' }}>
@@ -904,30 +905,30 @@ function ManualModal({ open, onClose, initial, orgId, employees, onSaved }) {
           </div>
         </div>
 
-        {/* ── Status chips ── */}
-        <div>
+        {/* ── Status ── */}
+        <div style={{ background:'var(--bg-surface2)', borderRadius:12, padding:'11px 14px', border:'1px solid var(--border)' }}>
           <label style={LSEC}>Status *</label>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:6 }}>
-            {MANUAL_STATUSES.map(s => {
-              const cfg = statusCfg(s)
-              const active = form.status === s
-              return (
-                <button key={s} type="button" onClick={() => setForm(f => ({...f, status: s}))}
-                  style={{
-                    padding:'7px 4px', borderRadius:9, cursor:'pointer', transition:'all .15s',
-                    border: `1.5px solid ${active ? cfg.accent : 'var(--border)'}`,
-                    background: active ? cfg.bg : 'var(--bg-surface2)',
-                    color: active ? cfg.accent : 'var(--text-muted)',
-                    fontSize:'0.7rem', fontWeight: active ? 700 : 500, textAlign:'center', lineHeight:1.3,
-                    boxShadow: active ? `0 0 0 2px color-mix(in srgb, ${cfg.accent} 15%, transparent)` : 'none',
-                  }}>
-                  <span style={{ display:'block', fontSize:'0.65rem', fontWeight:800, fontFamily:'monospace', marginBottom:1 }}>
-                    {cfg.short || s.substring(0,2).toUpperCase()}
-                  </span>
-                  {cfg.label || s}
-                </button>
-              )
-            })}
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            {/* Active status badge */}
+            <div style={{
+              width:38, height:38, borderRadius:10, flexShrink:0,
+              background: statusCfg(form.status).bg || 'var(--bg-surface)',
+              border: `1.5px solid ${statusCfg(form.status).accent || 'var(--border)'}`,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              fontSize:'0.6rem', fontWeight:800, fontFamily:'monospace', letterSpacing:'0.03em',
+              color: statusCfg(form.status).accent || 'var(--text-muted)',
+              boxShadow: `0 0 0 3px color-mix(in srgb, ${statusCfg(form.status).accent || 'transparent'} 10%, transparent)`,
+              transition:'all .2s',
+            }}>
+              {statusCfg(form.status).short || form.status.substring(0,2).toUpperCase()}
+            </div>
+            <select className="field-input" value={form.status} onChange={sf('status')}
+              style={{ flex:1, fontWeight:600, color: statusCfg(form.status).accent || 'var(--text-primary)' }}>
+              {MANUAL_STATUSES.map(s => {
+                const cfg = statusCfg(s)
+                return <option key={s} value={s}>{cfg.short} — {cfg.label || s}</option>
+              })}
+            </select>
           </div>
         </div>
 

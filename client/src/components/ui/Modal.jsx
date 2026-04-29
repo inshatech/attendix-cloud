@@ -38,6 +38,7 @@ export function Modal({ open, onClose, title, description, children, size='md', 
               border: '1px solid var(--border)',
               boxShadow: '0 32px 80px rgba(0,0,0,.5)',
               isolation: 'isolate',
+              ...(noScroll && { height: '90vh' }),
             }}>
             {title !== null && title !== undefined ? (
               <div className="flex items-start justify-between gap-4">

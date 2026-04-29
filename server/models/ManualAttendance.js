@@ -26,7 +26,7 @@ const ManualAttendanceSchema = new mongoose.Schema({
   // ── Status override ───────────────────────────────────────────────────────
   status: {
     type: String, required: true,
-    enum: ['present','absent','half-day','late','on-leave','holiday','week-off','paid-leave','sick-leave','comp-off'],
+    enum: ['present','on-duty','absent','half-day','late','on-leave','holiday','week-off','paid-leave','sick-leave','comp-off'],
   },
 
   // ── Optional time override ────────────────────────────────────────────────

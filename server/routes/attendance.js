@@ -453,7 +453,7 @@ router.get('/organizations/:orgId/attendance/today', requireAuth, generalApiLimi
     // Summary counts
     const summary = { total: records.length, present: 0, late: 0, halfDay: 0, absent: 0, onLeave: 0, holiday: 0, weekOff: 0 };
     records.forEach(r => {
-      if (r.status === 'present')                                          summary.present++;
+      if (r.status === 'present' || r.status === 'on-duty')               summary.present++;
       else if (r.status === 'late')                                        summary.late++;
       else if (r.status === 'half-day')                                    summary.halfDay++;
       else if (r.status === 'absent')                                      summary.absent++;
@@ -607,7 +607,7 @@ router.get('/organizations/:orgId/attendance/range', requireAuth, generalApiLimi
         const manual = manualByEmpDate[empId]?.[date];
         if (manual) {
           const s = manual.status;
-          if      (s === 'present')                                          totals.present++;
+          if      (s === 'present' || s === 'on-duty')                        totals.present++;
           else if (s === 'late')                                             totals.late++;
           else if (s === 'half-day')                                         totals.halfDay++;
           else if (s === 'absent')                                           totals.absent++;
@@ -797,7 +797,7 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
         const manual = manualByEmpDate3[emp.employeeId]?.[date];
         if (manual) {
           const s = manual.status;
-          if      (s === 'present')                                                       att.present++;
+          if      (s === 'present' || s === 'on-duty')                                     att.present++;
           else if (s === 'late')                                                          att.late++;
           else if (s === 'half-day')                                                      att.halfDay++;
           else if (s === 'absent')                                                        att.absent++;
