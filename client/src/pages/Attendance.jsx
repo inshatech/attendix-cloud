@@ -920,7 +920,7 @@ function ManualModal({ open, onClose, initial, orgId, employees, onSaved }) {
               boxShadow: `0 0 0 3px color-mix(in srgb, ${statusCfg(form.status).accent || 'transparent'} 10%, transparent)`,
               transition:'all .2s',
             }}>
-              {statusCfg(form.status).short || form.status.substring(0,2).toUpperCase()}
+              {statusCfg(form.status).short || (form.status || '').substring(0,2).toUpperCase()}
             </div>
             <select className="field-input" value={form.status} onChange={sf('status')}
               style={{ flex:1, fontWeight:600, color: statusCfg(form.status).accent || 'var(--text-primary)' }}>
