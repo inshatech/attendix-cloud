@@ -83,6 +83,7 @@ async function getTurnstileConfig() {
 async function verifyTurnstile(token, ip) {
   const cfg = await getTurnstileConfig();
   if (!cfg) return true; // plugin disabled — skip verification
+  if (process.env.NODE_ENV === 'development') return true; // dev bypass — never runs in production
   if (!token) return false;
   return new Promise(resolve => {
     const body = JSON.stringify({ secret: cfg.secretKey, response: token, remoteip: ip });
