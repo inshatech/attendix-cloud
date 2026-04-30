@@ -84,7 +84,10 @@ async function verifyTurnstile(token, ip) {
   const cfg = await getTurnstileConfig();
   if (!cfg) return true; // plugin disabled — skip verification
   if (process.env.NODE_ENV === 'development') return true; // dev bypass — never runs in production
-  if (!token) return false;
+  if (!token) {
+    console.warn('[Turnstile] token missing in request');
+    return false;
+  }
   return new Promise(resolve => {
     const body = JSON.stringify({ secret: cfg.secretKey, response: token, remoteip: ip });
     const req = https.request({
@@ -96,12 +99,16 @@ async function verifyTurnstile(token, ip) {
       let data = '';
       res.on('data', d => { data += d; });
       res.on('end', () => {
-        try { resolve(JSON.parse(data).success === true); }
+        try {
+          const parsed = JSON.parse(data);
+          if (!parsed.success) console.warn('[Turnstile] verify failed:', JSON.stringify(parsed));
+          resolve(parsed.success === true);
+        }
         catch { resolve(false); }
       });
     });
-    req.on('error', () => resolve(false));
-    req.setTimeout(5000, () => { req.destroy(); resolve(false); });
+    req.on('error', e => { console.warn('[Turnstile] request error:', e.message); resolve(false); });
+    req.setTimeout(5000, () => { req.destroy(); console.warn('[Turnstile] request timeout'); resolve(false); });
     req.write(body);
     req.end();
   });
