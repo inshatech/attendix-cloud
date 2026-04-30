@@ -267,7 +267,7 @@ export default function Login() {
 
   // Turnstile config + widget (login page)
   useEffect(() => {
-    fetch('/turnstile-config').then(r => r.json()).then(cfg => {
+    api.get('/turnstile-config').then(cfg => {
       if (!cfg?.enabled || !cfg?.siteKey || !cfg?.onLogin) return
       setTsCfg(cfg)
       const scriptId = 'cf-turnstile-script'

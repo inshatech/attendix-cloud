@@ -107,7 +107,7 @@ export default function ForgotPassword() {
 
   // Turnstile config + widget
   useEffect(() => {
-    fetch('/turnstile-config').then(r => r.json()).then(cfg => {
+    api.get('/turnstile-config').then(cfg => {
       if (!cfg?.enabled || !cfg?.siteKey || cfg?.onForgotPassword === false) return
       setTsCfg(cfg)
       const scriptId = 'cf-turnstile-script'

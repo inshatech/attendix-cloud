@@ -7,13 +7,13 @@ import { OrgContextBar } from './OrgContextBar'
 import { Toaster } from '../ui/Toast'
 import { useSidebar } from '../../store/sidebar'
 import { useBrand } from '../../store/brand'
+import api from '../../lib/api'
 
 // Tawk.to loader — fetches config from backend and injects script
 async function loadTawk() {
   if (window.Tawk_API || document.getElementById('tawk-script')) return
   try {
-    const res = await fetch('/tawk-config')
-    const cfg = await res.json()
+    const cfg = await api.get('/tawk-config')
     if (!cfg?.propertyId) return
     window.Tawk_API = window.Tawk_API || {}
     window.Tawk_LoadStart = new Date()

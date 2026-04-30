@@ -75,7 +75,7 @@ export default function Register() {
 
   // Turnstile config + widget bootstrap
   useEffect(() => {
-    fetch('/turnstile-config').then(r => r.json()).then(cfg => {
+    api.get('/turnstile-config').then(cfg => {
       if (!cfg?.enabled || !cfg?.siteKey || cfg?.onRegister === false) return
       setTsCfg(cfg)
       const scriptId = 'cf-turnstile-script'
