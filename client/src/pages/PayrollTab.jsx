@@ -138,7 +138,7 @@ function PayrollRow({ rec, selected, onToggle }) {
         {/* Working days */}
         <td className="tbl-cell">
           <p style={{ fontSize:'0.85rem', fontFamily:'monospace', color:'var(--text-secondary)', fontWeight:600 }}>{fmtD(p.effectiveDays)}</p>
-          <p style={{ fontSize:'0.68rem', fontFamily:'monospace', color:'var(--text-dim)' }}>/ {p.workingDays} days</p>
+          <p style={{ fontSize:'0.68rem', fontFamily:'monospace', color:'var(--text-dim)' }}>/ {p.totalDays ?? p.workingDays} days</p>
         </td>
         {/* LOP */}
         <td className="tbl-cell">
@@ -223,13 +223,14 @@ function PayrollRow({ rec, selected, onToggle }) {
                   <div>
                     <p style={{ fontSize:'0.7rem', fontFamily:'monospace', textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-dim)', fontWeight:700, marginBottom:10 }}>Salary Calculation</p>
                     {(() => {
-                      const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+                      const _td          = p.totalDays ?? p.workingDays
+                      const rangeFullPay = +(_td * p.dailyRate).toFixed(2)
                       const lopAmt       = +(p.lopDays * p.dailyRate).toFixed(2)
                       const rows = [
-                        { label:'Salary',         value:fmt(rec.salary),   note:`(${rec.salaryType})`,                                         color:'var(--text-secondary)' },
-                        { label:'Daily Rate',     value:fmt(p.dailyRate),  note: p.fullMonthWorkingDays ? `(÷ ${p.fullMonthWorkingDays} working days in month)` : '', color:'var(--text-muted)' },
-                        { label:'Working Days',   value:`${p.workingDays} days`, note:'(excl. week-off & holidays)',                           color:'var(--text-muted)' },
-                        { label:`${p.workingDays}d × ₹${p.dailyRate}`, value:fmt(rangeFullPay), note:'range pay before LOP',                   color:'var(--text-secondary)' },
+                        { label:'Salary',         value:fmt(rec.salary),   note:`(${rec.salaryType})`,                                                         color:'var(--text-secondary)' },
+                        { label:'Daily Rate',     value:fmt(p.dailyRate),  note: p.fullMonthWorkingDays ? `(÷ ${p.fullMonthWorkingDays} calendar days in month)` : '', color:'var(--text-muted)' },
+                        { label:'Calendar Days',  value:`${_td} days`,     note:'(weekoffs & holidays included in monthly pay)',                                color:'var(--text-muted)' },
+                        { label:`${_td}d × ₹${p.dailyRate}`, value:fmt(rangeFullPay), note:'range pay before LOP',                                             color:'var(--text-secondary)' },
                         ...(p.lopDays > 0 ? [{ label:'LOP Deduction', value:`−${fmt(lopAmt)}`, note:`(${fmtD(p.lopDays)}d × ₹${p.dailyRate})`, color:'#f87171' }] : []),
                         { label:'Gross Pay',      value:fmt(p.grossPay),   note:'',                                                            color:'var(--text-primary)', bold:true },
                         { label:'Overtime',       value:p.otAmount > 0 ? `+${fmt(p.otAmount)}` : '—', note:'',                                color:'#c084fc' },
@@ -291,7 +292,7 @@ function PayrollRow({ rec, selected, onToggle }) {
 function buildPayrollRegisterSheet(rows, period) {
   const header = [
     '#','Code','Name','Dept','Designation','Salary Type','Monthly Salary',
-    'Month Working Days','Range Working Days','Effective Days (Paid)','LOP Days','Daily Rate',
+    'Month Calendar Days','Range Calendar Days','Effective Days (Paid)','LOP Days','Daily Rate',
     'Range Full Pay','LOP Amount','Gross Pay','OT Amount',
     'Present (On-time)','Late (Charged)','Late* (Pardoned)','Half Day','Absent','Paid Leave','Holiday','Week Off',
     'Worked Hours','OT Hours',
@@ -300,11 +301,12 @@ function buildPayrollRegisterSheet(rows, period) {
   ]
   const data = rows.map((r,i) => {
     const p = r.payroll, at = r.attendance
-    const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+    const _td = p.totalDays ?? p.workingDays
+    const rangeFullPay = +(_td * p.dailyRate).toFixed(2)
     const lopAmt       = +(p.lopDays * p.dailyRate).toFixed(2)
     return [
       i+1, r.code, r.name, r.department||'', r.designation||'', r.salaryType, r.salary||0,
-      p.fullMonthWorkingDays || p.workingDays, p.workingDays, p.effectiveDays, p.lopDays, p.dailyRate,
+      p.fullMonthWorkingDays, _td, p.effectiveDays, p.lopDays, p.dailyRate,
       rangeFullPay, lopAmt, p.grossPay, p.otAmount,
       at.present - (at.pardonedLate||0), at.late, at.pardonedLate||0, at.halfDay, at.absent,
       at.paidLeave, at.holiday, at.weekOff,
@@ -349,16 +351,17 @@ function buildDeductionsSheet(rows) {
 }
 
 function buildLOPSheet(rows) {
-  const header = ['#','Code','Name','Department','Monthly Salary','Month Working Days','Daily Rate','Absent (Full Day)','Absent (Half-Day Weekday)','Half Day Worked','Total LOP Days','Range Full Pay','LOP Amount','Gross Pay','Net Pay']
+  const header = ['#','Code','Name','Department','Monthly Salary','Month Calendar Days','Daily Rate','Absent (Full Day)','Absent (Half-Day Weekday)','Half Day Worked','Total LOP Days','Range Full Pay','LOP Amount','Gross Pay','Net Pay']
   return [header, ...rows.filter(r => r.payroll.lopDays > 0).map((r,i) => {
     const p = r.payroll, at = r.attendance
     const hdAbs = at.halfDayWeekdayAbsent || 0
     const fullAbs = at.absent - hdAbs
-    const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+    const _td = p.totalDays ?? p.workingDays
+    const rangeFullPay = +(_td * p.dailyRate).toFixed(2)
     const lopAmt       = +(p.lopDays * p.dailyRate).toFixed(2)
     return [
       i+1, r.code, r.name, r.department||'', r.salary||0,
-      p.fullMonthWorkingDays || p.workingDays, p.dailyRate,
+      p.fullMonthWorkingDays, p.dailyRate,
       fullAbs, hdAbs, at.halfDay,
       p.lopDays, rangeFullPay, lopAmt, p.grossPay, p.netPay,
     ]
@@ -501,13 +504,14 @@ function printReport(rows, reportType, period, org) {
       </tr></thead><tbody>
       ${rows.map((r,i) => {
         const p = r.payroll
-        const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+        const _td = p.totalDays ?? p.workingDays
+        const rangeFullPay = +(_td * p.dailyRate).toFixed(2)
         const lopAmt = +(p.lopDays * p.dailyRate).toFixed(2)
         return `<tr ${i%2===0?'class="alt"':''}>
           <td>${i+1}</td><td>${r.code||''}</td><td>${r.name}</td><td>${r.department||'—'}</td>
           <td>${fmtN(r.salary)}</td>
-          <td title="Monthly salary ÷ ${p.fullMonthWorkingDays||p.workingDays} month working days">${fmtN(p.dailyRate)}</td>
-          <td>${p.workingDays}d</td>
+          <td title="Monthly salary ÷ ${p.fullMonthWorkingDays} calendar days in month">${fmtN(p.dailyRate)}</td>
+          <td>${_td}d</td>
           <td style="color:#16a34a">${p.effectiveDays}d</td>
           <td style="color:#c0392b">${p.lopDays > 0 ? p.lopDays+'d' : '—'}</td>
           <td>${fmtN(rangeFullPay)}</td>
@@ -522,7 +526,7 @@ function printReport(rows, reportType, period, org) {
       </tbody><tfoot><tr>
         <td colspan="4"><strong>TOTAL (${rows.length} employees)</strong></td>
         <td></td><td></td><td></td><td></td><td></td>
-        <td><strong>${fmtN(rows.reduce((s,r)=>s+(r.payroll.workingDays*r.payroll.dailyRate),0))}</strong></td>
+        <td><strong>${fmtN(rows.reduce((s,r)=>s+((r.payroll.totalDays??r.payroll.workingDays)*r.payroll.dailyRate),0))}</strong></td>
         <td style="color:#c0392b"><strong>−${fmtN(rows.reduce((s,r)=>s+(r.payroll.lopDays*r.payroll.dailyRate),0))}</strong></td>
         <td><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.grossPay,0))}</strong></td>
         <td><strong>${fmtN(rows.reduce((s,r)=>s+r.payroll.otAmount,0))}</strong></td>
@@ -549,19 +553,20 @@ function printReport(rows, reportType, period, org) {
     const lopRows = rows.filter(r => r.payroll.lopDays > 0)
     tableHtml = `<table><thead><tr>
       <th>#</th><th>Code</th><th>Name</th><th>Dept</th><th>Salary</th>
-      <th>Month Days</th><th>Daily Rate</th><th>Work Days</th>
+      <th>Month Days</th><th>Daily Rate</th><th>Cal. Days</th>
       <th>Range Pay</th><th>LOP Days</th><th>LOP Amount</th><th>Gross</th><th>Net Pay</th>
     </tr></thead><tbody>
     ${lopRows.map((r,i) => {
       const p = r.payroll
-      const rangeFullPay = +(p.workingDays * p.dailyRate).toFixed(2)
+      const _td = p.totalDays ?? p.workingDays
+      const rangeFullPay = +(_td * p.dailyRate).toFixed(2)
       const lopAmt = +(p.lopDays * p.dailyRate).toFixed(2)
       return `<tr ${i%2===0?'class="alt"':''}>
         <td>${i+1}</td><td>${r.code||''}</td><td>${r.name}</td><td>${r.department||'—'}</td>
         <td>${fmtN(r.salary)}</td>
-        <td>${p.fullMonthWorkingDays||p.workingDays}d</td>
+        <td>${p.fullMonthWorkingDays}d</td>
         <td>${fmtN(p.dailyRate)}</td>
-        <td>${p.workingDays}d</td>
+        <td>${_td}d</td>
         <td>${fmtN(rangeFullPay)}</td>
         <td style="color:#c0392b">${p.lopDays}d</td>
         <td style="color:#c0392b">−${fmtN(lopAmt)}</td>
@@ -571,7 +576,7 @@ function printReport(rows, reportType, period, org) {
     }).join('')}
     </tbody><tfoot><tr>
       <td colspan="8"><strong>TOTAL (${lopRows.length} employees with LOP)</strong></td>
-      <td><strong>${fmtN(lopRows.reduce((s,r)=>s+(r.payroll.workingDays*r.payroll.dailyRate),0))}</strong></td>
+      <td><strong>${fmtN(lopRows.reduce((s,r)=>s+((r.payroll.totalDays??r.payroll.workingDays)*r.payroll.dailyRate),0))}</strong></td>
       <td></td>
       <td style="color:#c0392b"><strong>−${fmtN(lopRows.reduce((s,r)=>s+(r.payroll.lopDays*r.payroll.dailyRate),0))}</strong></td>
       <td><strong>${fmtN(lopRows.reduce((s,r)=>s+r.payroll.grossPay,0))}</strong></td>
@@ -674,8 +679,8 @@ function printReport(rows, reportType, period, org) {
     }`).join('<br>')
   }<br>
   <div class="abbr-formula">
-    <strong>Daily Rate</strong> = Monthly Salary ÷ Full-Month Working Days (actual calendar month, excl. week-offs &amp; holidays) &nbsp;|&nbsp;
-    <strong>Range Pay</strong> = Working Days in Range × Daily Rate &nbsp;|&nbsp;
+    <strong>Daily Rate</strong> = Monthly Salary ÷ Calendar Days in Month &nbsp;|&nbsp;
+    <strong>Range Pay</strong> = Calendar Days in Range × Daily Rate &nbsp;|&nbsp;
     <strong>LOP Amount</strong> = LOP Days × Daily Rate &nbsp;|&nbsp;
     <strong>Gross Pay</strong> = Range Pay − LOP Amount &nbsp;|&nbsp;
     <strong>Net Pay</strong> = Gross + OT − PF − ESI − PT

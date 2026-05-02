@@ -11,6 +11,10 @@ const {
   applyTrial,
   suspendOrg,
   resumeOrg,
+  endOfDayIST,
+  addDaysEndIST,
+  addMonthEndIST,
+  addYearEndIST,
 } = require('../services/subscriptionService');
 
 const { requireAuth, requireRole } = require('../auth/middleware');
@@ -107,16 +111,11 @@ router.post('/admin/subscriptions', requireAuth, requireRole('admin'), adminApiL
     const plan = await SubscriptionPlan.findOne({ planId }).lean();
     if (!plan) return res.status(404).json({ error: 'Plan not found' });
 
-    const now     = new Date();
-    let endDate   = new Date(now);
-
-    if (billingCycle === 'trial') {
-      endDate.setDate(endDate.getDate() + (plan.trialDays || 14));
-    } else if (billingCycle === 'yearly') {
-      endDate.setFullYear(endDate.getFullYear() + 1);
-    } else {
-      endDate.setMonth(endDate.getMonth() + 1);
-    }
+    const now = new Date();
+    let endDate;
+    if (billingCycle === 'trial')        endDate = addDaysEndIST(plan.trialDays || 14);
+    else if (billingCycle === 'yearly')  endDate = addYearEndIST();
+    else                                 endDate = addMonthEndIST();
 
     // Expire existing active subscription
     await UserSubscription.updateMany(
@@ -154,7 +153,7 @@ router.patch('/admin/subscriptions/:subId', requireAuth, requireRole('admin'), a
     const { status, endDate, notes, autoRenew } = req.body;
     const update = {};
     if (status)   update.status  = status;
-    if (endDate)  update.endDate = new Date(endDate);
+    if (endDate)  update.endDate = endOfDayIST(new Date(endDate));
     if (notes !== undefined) update.notes = notes;
     if (autoRenew !== undefined) update.autoRenew = autoRenew;
 
@@ -244,9 +243,7 @@ router.post('/subscriptions/subscribe', requireAuth, generalApiLimiter, async (r
     if (plan.isTrial) return res.status(400).json({ error: 'Use /subscriptions/start-trial for trial plans' });
 
     const now     = new Date();
-    const endDate = new Date(now);
-    if (billingCycle === 'yearly') endDate.setFullYear(endDate.getFullYear() + 1);
-    else endDate.setMonth(endDate.getMonth() + 1);
+    const endDate = billingCycle === 'yearly' ? addYearEndIST() : addMonthEndIST();
 
     // Cancel any existing active subscription
     await UserSubscription.updateMany(
@@ -321,9 +318,8 @@ router.post('/admin/subscriptions/:subId/extend', requireAuth, requireRole('admi
     const { days = 30 } = req.body;
     const sub = await UserSubscription.findOne({ subscriptionId: req.params.subId });
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });
-    const current = new Date(sub.endDate || Date.now());
-    current.setDate(current.getDate() + Number(days));
-    sub.endDate = current;
+    const base = sub.endDate && new Date(sub.endDate) > new Date() ? new Date(sub.endDate) : new Date();
+    sub.endDate = addDaysEndIST(Number(days), base);
     if (sub.trialEndsAt) sub.trialEndsAt = current;
     sub.status = 'active';
     await sub.save();
@@ -405,7 +401,7 @@ router.post('/subscriptions/initiate-payment', requireAuth, async (req, res) => 
             (coupon.maxUses == null || coupon.usedCount < coupon.maxUses)) {
           if (coupon.discountType === 'trial_ext') {
             const trialDays = coupon.discountValue || 7;
-            const endDate = new Date(now); endDate.setDate(endDate.getDate() + trialDays);
+            const endDate = addDaysEndIST(trialDays);
             await UserSubscription.updateMany({ userId: req.authUser.userId, status: { $in: ['trial','active'] } }, { $set: { status: 'cancelled', cancelledAt: now } });
             await UserSubscription.create({ subscriptionId: `sub-${uuidv4().split('-')[0]}`, userId: req.authUser.userId, planId, billingCycle, startDate: now, endDate, status: 'trial', autoRenew: false, paidAmount: 0, paymentRef: `coupon:${couponCode}`, createdBy: req.authUser.userId });
             return res.json({ status: 'success', data: { gateway: 'trial_ext', trialDays, message: `Trial extended by ${trialDays} days!` } });
@@ -423,8 +419,8 @@ router.post('/subscriptions/initiate-payment', requireAuth, async (req, res) => 
 
     // If coupon makes it free, subscribe directly
     if (amount <= 0) {
-      const now = new Date(); const endDate = new Date(now);
-      if (billingCycle === 'yearly') endDate.setFullYear(endDate.getFullYear() + 1); else endDate.setMonth(endDate.getMonth() + 1);
+      const now = new Date();
+      const endDate = billingCycle === 'yearly' ? addYearEndIST() : addMonthEndIST();
       await UserSubscription.updateMany({ userId: req.authUser.userId, status: { $in: ['trial','active'] } }, { $set: { status: 'cancelled', cancelledAt: now } });
       await UserSubscription.create({ subscriptionId: `sub-${uuidv4().split('-')[0]}`, userId: req.authUser.userId, planId, billingCycle, startDate: now, endDate, status: 'active', autoRenew: false, paidAmount: 0, paymentRef: `coupon:${couponCode}`, createdBy: req.authUser.userId });
       return res.json({ status: 'success', data: { gateway: 'trial_ext', trialDays: 0, message: `Subscribed to ${plan.name} for free!`, coupon: couponInfo } });

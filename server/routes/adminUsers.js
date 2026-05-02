@@ -7,6 +7,7 @@ const { UserSubscription, SubscriptionPlan } = require('../models/Subscription')
 const { requireAuth, requireRole } = require('../auth/middleware');
 const { hashPassword } = require('../auth/helpers');
 const { adminApiLimiter, strictAdminLimiter } = require('../auth/rateLimits');
+const { endOfDayIST, addDaysEndIST } = require('../services/subscriptionService');
 
 router.use(requireAuth, requireRole('admin'), adminApiLimiter);
 
@@ -177,7 +178,7 @@ router.post('/users/:userId/assign-subscription', async (req, res) => {
     );
 
     const startDate = new Date();
-    const endDate   = new Date(startDate.getTime() + durationDays * 24 * 3600 * 1000);
+    const endDate   = addDaysEndIST(durationDays);
     const status    = plan.isTrial ? 'trial' : 'active';
 
     const sub = await UserSubscription.create({
@@ -315,7 +316,7 @@ router.patch('/subscriptions/:subscriptionId', async (req, res) => {
     const allowed = ['planId','status','endDate','paidAmount','paymentRef','notes','gateway','transactionId','billingCycle'];
     const update = {};
     for (const k of allowed) if (req.body[k] !== undefined) update[k] = req.body[k];
-    if (update.endDate) update.endDate = new Date(update.endDate);
+    if (update.endDate) update.endDate = endOfDayIST(new Date(update.endDate));
     const sub = await UserSubscription.findOneAndUpdate({ subscriptionId: req.params.subscriptionId }, { $set: update }, { new: true });
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });
     res.json({ status: 'success', data: sub });
@@ -329,7 +330,7 @@ router.post('/subscriptions/:subscriptionId/extend', async (req, res) => {
     const sub = await UserSubscription.findOne({ subscriptionId: req.params.subscriptionId });
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });
     const base    = sub.endDate > new Date() ? sub.endDate : new Date();
-    sub.endDate   = new Date(base.getTime() + days * 24 * 3600 * 1000);
+    sub.endDate   = addDaysEndIST(days, base);
     if (sub.status === 'expired') sub.status = 'active';
     if (reason) sub.notes = [sub.notes, `Extended ${days}d: ${reason}`].filter(Boolean).join(' | ');
     await sub.save();

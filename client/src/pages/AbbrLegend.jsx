@@ -159,7 +159,7 @@ function AbbrLegendModal({ onClose }) {
             <p style={{ fontSize:'0.72rem', color:'var(--text-muted)', lineHeight:1.5 }}>
               <strong style={{ color:'#58a6ff' }}>Payroll formula:</strong>
               &nbsp; Net Pay = (Salary − LOP) + OT − PF − ESI − PT &nbsp;|&nbsp;
-              Daily Rate = Monthly Salary ÷ 26 &nbsp;|&nbsp;
+              Daily Rate = Monthly Salary ÷ Calendar Days in Month &nbsp;|&nbsp;
               Half-day weekday absence = 0.5 LOP &nbsp;|&nbsp;
               L* pardoned lates count as Present for pay purposes
             </p>
@@ -186,7 +186,7 @@ export function buildAbbrKeySheet() {
   })
   rows.push([])
   rows.push(['Formula', 'Net Pay = (Salary − LOP) + OT − PF − ESI − PT'])
-  rows.push(['Formula', 'Daily Rate = Monthly Salary ÷ 26 working days'])
+  rows.push(['Formula', 'Daily Rate = Monthly Salary ÷ Calendar Days in Month'])
   rows.push(['Formula', 'LOP Days = Absent(full) × 1.0 + Absent(half-day weekday) × 0.5 + Unpaid Leave'])
   rows.push(['Formula', 'Effective Days = P + L + L* + 0.5×H + Holiday + Week Off + Paid Leave'])
   return rows

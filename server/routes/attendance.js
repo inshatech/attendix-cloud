@@ -849,23 +849,13 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
       // Working days in the selected range (excludes weekoffs and holidays)
       const workingDaysInRange = dates.length - att.weekOff - att.holiday;
 
-      // Full-month working days — used as daily rate divisor for monthly salary.
-      // Always based on the complete calendar month of startDate, NOT the selected range.
-      // This prevents the daily rate from inflating when a partial-month range is queried.
-      // Accounts for this employee's actual week-off days + org holidays in that month.
+      // Calendar days of the month — used as daily rate divisor (calendar day method).
+      // Monthly salary ÷ calendar days gives a stable, fair daily rate that does not
+      // inflate in months with more public holidays (unlike working-day method).
       const _fmDate  = new Date(startDate + 'T12:00:00')
       const _fmYear  = _fmDate.getFullYear()
       const _fmMonth = _fmDate.getMonth()
       const _fmDays  = new Date(_fmYear, _fmMonth + 1, 0).getDate()
-      let fullMonthWorkingDays = 0
-      for (let _d = 1; _d <= _fmDays; _d++) {
-        const _dow = new Date(_fmYear, _fmMonth, _d).getDay()
-        if (weeklyOff.includes(_dow)) continue
-        const _ds = `${_fmYear}-${String(_fmMonth + 1).padStart(2,'0')}-${String(_d).padStart(2,'0')}`
-        if (hMap.has(_ds)) continue
-        fullMonthWorkingDays++
-      }
-      if (fullMonthWorkingDays === 0) fullMonthWorkingDays = _fmDays  // safety fallback
 
       // LOP days:
       //   Full LOP  : absent (non-half-day-weekday), unpaid-leave
@@ -876,8 +866,8 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
                     + att.unpaidLeave                            // unpaid leave
                     + (att.halfDay * 0.5);                       // came but worked only half shift
 
-      // Effective paid working days in the selected range
-      const effectiveDays = workingDaysInRange - lopDays;
+      // Paid days: all calendar days in the range minus LOP (weekoffs & holidays are implicitly paid for monthly staff)
+      const effectiveDays = dates.length - lopDays;
 
       // Actual shift hours per day (uses shift in/out − unpaid breaks; fallback 8h)
       const hoursPerDay = shiftNetHours(shift)
@@ -885,9 +875,8 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
       let dailyRate = 0, hourlyRate = 0, grossPay = 0, otAmount = 0;
 
       if (salaryType === 'monthly') {
-        // Daily rate = salary ÷ full calendar month working days (fixed per month, not per range)
-        // grossPay = effectiveDays in range × dailyRate  →  correct partial-month proration
-        dailyRate  = fullMonthWorkingDays > 0 ? salary / fullMonthWorkingDays : 0
+        // Daily rate = salary ÷ calendar days in month; weekoffs & holidays are part of monthly pay
+        dailyRate  = _fmDays > 0 ? salary / _fmDays : 0
         hourlyRate = dailyRate / hoursPerDay
         grossPay   = Math.max(0, effectiveDays * dailyRate)
       } else if (salaryType === 'daily') {
@@ -950,9 +939,10 @@ router.get('/organizations/:orgId/attendance/payroll', requireAuth, generalApiLi
         shift:       shiftDetail(shift),
         attendance:  att,
         payroll: {
-          workingDays:         dates.length - att.weekOff - att.holiday,
-          fullMonthWorkingDays: fullMonthWorkingDays,
-          effectiveDays:       +effectiveDays.toFixed(2),
+          workingDays:          dates.length - att.weekOff - att.holiday,
+          totalDays:            dates.length,
+          fullMonthWorkingDays: _fmDays,
+          effectiveDays:        +effectiveDays.toFixed(2),
           lopDays:             +lopDays.toFixed(2),
           dailyRate:           +dailyRate.toFixed(2),
           hourlyRate:     +hourlyRate.toFixed(2),

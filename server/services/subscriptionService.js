@@ -16,6 +16,42 @@
 const mongoose   = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
+// ── IST date helpers (UTC+5:30) ───────────────────────────────────────────────
+// All subscription endDates are stored as IST end-of-day in UTC so expiry fires
+// at IST midnight, not at some arbitrary UTC offset time.
+const IST_MS = 5.5 * 60 * 60 * 1000; // 5h 30m in milliseconds
+
+// Returns end-of-day for a given UTC date, expressed in IST (23:59:59.999 IST → UTC)
+function endOfDayIST(date = new Date()) {
+  const ist = new Date(date.getTime() + IST_MS);
+  ist.setUTCHours(23, 59, 59, 999);
+  return new Date(ist.getTime() - IST_MS);
+}
+
+// Add N calendar days from `from` and return end-of-that-day in IST
+function addDaysEndIST(days, from = new Date()) {
+  const ist = new Date(from.getTime() + IST_MS);
+  ist.setUTCDate(ist.getUTCDate() + days);
+  ist.setUTCHours(23, 59, 59, 999);
+  return new Date(ist.getTime() - IST_MS);
+}
+
+// Add 1 month from `from` and return end-of-that-day in IST
+function addMonthEndIST(from = new Date()) {
+  const ist = new Date(from.getTime() + IST_MS);
+  ist.setUTCMonth(ist.getUTCMonth() + 1);
+  ist.setUTCHours(23, 59, 59, 999);
+  return new Date(ist.getTime() - IST_MS);
+}
+
+// Add 1 year from `from` and return end-of-that-day in IST
+function addYearEndIST(from = new Date()) {
+  const ist = new Date(from.getTime() + IST_MS);
+  ist.setUTCFullYear(ist.getUTCFullYear() + 1);
+  ist.setUTCHours(23, 59, 59, 999);
+  return new Date(ist.getTime() - IST_MS);
+}
+
 const { SubscriptionPlan, UserSubscription } = require('../models/Subscription');
 const Organization = require('../models/Organization');
 
@@ -202,8 +238,7 @@ async function applyTrial(userId, createdBy = 'system') {
   if (!trialPlan) return null;
 
   const now      = new Date();
-  const endDate  = new Date(now);
-  endDate.setDate(endDate.getDate() + (trialPlan.trialDays || 14));
+  const endDate  = addDaysEndIST(trialPlan.trialDays || 14);
 
   const sub = await UserSubscription.create({
     subscriptionId: `sub-${uuidv4().split('-')[0]}`,
@@ -230,4 +265,8 @@ module.exports = {
   resumeOrg,
   expireOverdueSubscriptions,
   applyTrial,
+  endOfDayIST,
+  addDaysEndIST,
+  addMonthEndIST,
+  addYearEndIST,
 };

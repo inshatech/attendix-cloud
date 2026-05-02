@@ -15,6 +15,7 @@ const {
   razorpayVerifyWebhook, phonePeVerifyWebhook,
   paytmVerifyWebhook,    ccavenueDecrypt,
 } = require('../services/paymentService');
+const { addMonthEndIST, addYearEndIST } = require('../services/subscriptionService');
 
 // Keep raw body for Razorpay signature verification
 router.use((req, res, next) => {
@@ -93,9 +94,7 @@ async function activateSubscription({ orderId, paidAmount, gatewayRef, gateway, 
   const resolvedUserId2 = resolvedUserId;
 
   const now     = new Date();
-  const endDate = new Date(now);
-  if (billingCycle === 'yearly') endDate.setFullYear(endDate.getFullYear() + 1);
-  else endDate.setMonth(endDate.getMonth() + 1);
+  const endDate = billingCycle === 'yearly' ? addYearEndIST() : addMonthEndIST();
 
   // Create new subscription FIRST — only cancel old one after success
   // This prevents the loophole where cancel fires but new sub creation fails
